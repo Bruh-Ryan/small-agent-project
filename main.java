@@ -13,6 +13,7 @@ class main{
     static String questions="";
     static String tokenLine = "600"; // safe default for tokens to send inn
     static int definedTimer = 5;
+    record WikipediaResult(String resolvedTitle, String summary) {}
 
     public static void main(String []r)throws Exception{
 
@@ -76,11 +77,18 @@ class main{
         List<String> termsToSearch = searchTitles.isEmpty()
                 ? List.of(userQuery)   // fallback if the model gave nothing usable
                 : searchTitles;
+        
 
+        int exSentences = tokenBudget >= 1000 ? 15 : (tokenBudget >= 500 ? 10 : 6);
+        Set<String> seenTitles = new HashSet<>();
         for (String term : termsToSearch) {
-            String summary = fetchWikipediaSummary(term);
-            gatheredContext.append("Wikipedia (").append(term).append("): ")
-                        .append(summary).append("\n");
+            WikipediaResult result = fetchWikipediaSummary(term, exSentences);
+            if (seenTitles.contains(result.resolvedTitle())) {
+                continue;
+            }
+            seenTitles.add(result.resolvedTitle());
+            gatheredContext.append("Wikipedia (").append(result.resolvedTitle()).append("): ")
+                        .append(result.summary()).append("\n");
         }
 
         //context gathered.
@@ -114,7 +122,7 @@ class main{
                             
                                 "Given the user question below, decide:\n" +
                                 "1. Which tool(s) are needed, in order.\n" +
-                                "2.How may tokens the final answer will likely need (simple factual = 100 to 500, detailed explaination = 500-1000, multi-topic = 1000-3000)\n"+
+                                "2.How may tokens the final answer will likely need (simple factual = 100 to 500, detailed explaination = 500-1000, multi-topic = 1000-3000, muti-topic and very complex problem (eg. code, research papers, new studies , etc)= 3000-10000 <MAX TOKEN COUNT IS 128000>)\n"+
                                 "3. Given this user query, output the best Wikipedia article title(s) to search for.\n"+
                                 "Reply int EXACTLY this format, Nothing else:\n"+
                                 "TOKENS: <single integer only, no ranges, no dashes - e.g 800>\n" +
@@ -144,90 +152,137 @@ class main{
     
         // OpenRouter (OpenAI-style) responses use "content" not "text"
         int start = body.indexOf("\"content\":\"") + 11;
-        int end = body.indexOf("\"", start);
-        if (start < 11 || end == -1) return "Could not parse response: " + body;
-        String result = body.substring(start, end);
-        // unescape JSON escape sequences
+        if (start < 11) {
+            return "Could not parse response: " + body;
+        }
+
+        // DEBUG: Uncomment this to see the raw API JSON if it still truncates
+        // System.out.println("RAW LLM BODY: " + body);
+
+        StringBuilder resultBuilder = new StringBuilder();
+        boolean inEscape = false;
+
+        for (int i = start; i < body.length(); i++) {
+            char c = body.charAt(i);
+            
+            if (inEscape) {
+                // If the previous char was a backslash, append both and reset state
+                resultBuilder.append('\\').append(c);
+                inEscape = false;
+            } else if (c == '\\') {
+                // We hit a backslash, enter escape state for the next character
+                inEscape = true;
+            } else if (c == '"') {
+                // We found the actual unescaped closing quote of the JSON field
+                break;
+            } else {
+                resultBuilder.append(c);
+            }
+        }
+        System.out.println("RAW LLM BODY: " + body);
+        String result = resultBuilder.toString();
+
+        // Safely unescape standard JSON sequences
         result = result.replace("\\n", "\n")
                     .replace("\\\"", "\"")
-                    .replace("\\\\", "\\");
+                    .replace("\\\\", "\\")
+                    .replace("\\t", "\t")
+                    .replace("\\r", "\r");
+                    
         return result;
     }
 
     public static String answerWithContext(String question, String context, int tokenBudget) throws Exception {
         String instructions = "Using the following context, answer the user's question clearly.\n" +
-                              "Context:\n" + context + "\n" +
-                              "Question: " + question;
-        return callModel(instructions, tokenBudget);
-    }
+                "Rules:\n" +
+                "- Base all specific facts, numbers, names, and dates strictly on the context provided.\n" +
+                "- You may use general reasoning or well-known background knowledge only to connect ideas or explain terms, " +
+                "not to supply specific facts, figures, or dates that aren't in the context.\n" +
+                "- If a specific fact needed to fully answer isn't in the context, say so explicitly " +
+                "(e.g. 'the provided context doesn't specify X') rather than filling it in from memory.\n" +
+                "Context:\n" + context + "\n" +
+                "Question: " + question;
+            return callModel(instructions, tokenBudget);
+        }
 
-    //agent wiki:
-    public static String fetchWikipediaSummary(String searchQuery) throws Exception {
- 
+    // Holds the result of a Wikipedia lookup: "WikipediaResult"
+    // - resolvedTitle: the CANONICAL title Wikipedia actually resolved to (handles redirects)
+    // - summary: the extracted text content for that article
+    public static WikipediaResult fetchWikipediaSummary(String searchQuery, int exSentences) throws Exception {
+
         // STEP 1: opensearch to get the exact Wikipedia page title
         String searchUrl = "https://en.wikipedia.org/w/api.php?action=opensearch&search="
                 + URLEncoder.encode(searchQuery, StandardCharsets.UTF_8)
                 + "&limit=1&format=json";
- 
+    
         HttpRequest searchReq = HttpRequest.newBuilder()
                 .uri(URI.create(searchUrl))
                 .header("User-Agent", "small-agent-project/1.0 (learning project)")
                 .GET()
                 .build();
-
+    
         HttpResponse<String> searchRes = client.send(searchReq, HttpResponse.BodyHandlers.ofString());
         String searchBody = searchRes.body();
-        // ADD THIS guard for empty ["query",[],[],[]]:
         System.out.println("OpenSearch result: " + searchBody);
         if (searchBody.contains(",[],")) {
-            return "No Wikipedia article found for: " + searchQuery;
+            return new WikipediaResult(searchQuery, "No Wikipedia article found for: " + searchQuery);
         }
-        
-        System.out.println("OpenSearch result: " + searchBody);
- 
-        // opensearch returns: ["query",["Exact Title"],["description"],["url"]]
-        // we need the first item inside the second array — the exact title
-        int innerStart = searchBody.indexOf("[\"");           // find start of query
-        innerStart = searchBody.indexOf("\"", innerStart + 1); // skip past opening quote of query string
-        innerStart = searchBody.indexOf("[", innerStart);       // find the titles array [
-        int titleStart = searchBody.indexOf("\"", innerStart) + 1; // first " inside titles array
+    
+        int innerStart = searchBody.indexOf("[\"");
+        innerStart = searchBody.indexOf("\"", innerStart + 1);
+        innerStart = searchBody.indexOf("[", innerStart);
+        int titleStart = searchBody.indexOf("\"", innerStart) + 1;
         int titleEnd = searchBody.indexOf("\"", titleStart);
-        if (titleStart == 1 || titleEnd == -1) return "No search results found for: " + searchQuery;
+        if (titleStart == 1 || titleEnd == -1) {
+            return new WikipediaResult(searchQuery, "No search results found for: " + searchQuery);
+        }
         String exactTitle = searchBody.substring(titleStart, titleEnd);
         System.out.println("Exact Wikipedia title found: " + exactTitle);
- 
-        // STEP 2: fetch the summary using the exact title
-        String summaryUrl = "https://en.wikipedia.org/api/rest_v1/page/summary/"
-        + exactTitle.replace(" ", "_");
- 
-        HttpRequest summaryReq = HttpRequest.newBuilder()
-                .uri(URI.create(summaryUrl))
+    
+        // STEP 2: fetch a deeper extract (not just the lead paragraph) via action=query
+        String extractUrl = "https://en.wikipedia.org/w/api.php?action=query&prop=extracts"
+                + "&exsentences=" + exSentences
+                + "&explaintext=true&redirects=1&titles="
+                + URLEncoder.encode(exactTitle, StandardCharsets.UTF_8)
+                + "&format=json";
+    
+        HttpRequest extractReq = HttpRequest.newBuilder()
+                .uri(URI.create(extractUrl))
                 .header("User-Agent", "small-agent-project/1.0 (learning project)")
                 .GET()
                 .build();
-        HttpResponse<String> summaryRes = client.send(summaryReq, HttpResponse.BodyHandlers.ofString());
-        String summaryBody = summaryRes.body();
-        System.out.println("RAW BODY: " + summaryBody.substring(0, Math.min(500, summaryBody.length())));
- 
-        int extStart = summaryBody.indexOf("\"extract\":");
-        if (extStart == -1) return "No extract found.";
-        extStart = summaryBody.indexOf("\"", extStart + 10) + 1;
- 
+        HttpResponse<String> extractRes = client.send(extractReq, HttpResponse.BodyHandlers.ofString());
+        String body = extractRes.body();
+        System.out.println("RAW BODY: " + body.substring(0, Math.min(500, body.length())));
+    
+        // resolved canonical title (handles redirects)
+        String resolvedTitle = exactTitle;
+        int titleKeyStart = body.indexOf("\"title\":\"");
+        if (titleKeyStart != -1) {
+            int titleValStart = titleKeyStart + 9;
+            int titleValEnd = body.indexOf("\"", titleValStart);
+            if (titleValEnd != -1) {
+                resolvedTitle = body.substring(titleValStart, titleValEnd);
+            }
+        }
+    
+        int extStart = body.indexOf("\"extract\":");
+        if (extStart == -1) return new WikipediaResult(resolvedTitle, "No extract found.");
+        extStart = body.indexOf("\"", extStart + 10) + 1;
+    
         StringBuilder extract = new StringBuilder();
-        for (int i = extStart; i < summaryBody.length(); i++) {
-            char c = summaryBody.charAt(i);
-            if (c == '\\' && i + 1 < summaryBody.length() && summaryBody.charAt(i + 1) == '"') {
+        for (int i = extStart; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (c == '\\' && i + 1 < body.length() && body.charAt(i + 1) == '"') {
                 extract.append('"');
-                i++; // skip the escape char
+                i++;
             } else if (c == '"') {
-                break; // end of extract
+                break;
             } else {
                 extract.append(c);
             }
         }
- 
-        return extract.toString();
+    
+        return new WikipediaResult(resolvedTitle, extract.toString());
     }
-
-   
 }
