@@ -39,7 +39,7 @@ class wikipediaAgent{
         System.out.println("======================================================");
         String plan = plannerResponse(userQuery);
 
-        System.out.println("Plannning using..." + plan);
+        System.out.println("Plannning...");
 
         String tokenLine = "";
         List<String> searchTitles = new ArrayList<>();
@@ -66,13 +66,13 @@ class wikipediaAgent{
                 ? 500
                 : Integer.parseInt(tokenLine.replaceAll("[^0-9]", ""));
 
-        System.out.println("\nToken budget: " + tokenBudget);
-        System.out.println("Suggested searches: " + searchTitles);
+        // System.out.println("\nToken budget: " + tokenBudget); //(debug)
+        // System.out.println("Suggested searches: " + searchTitles);// (debug)
 
         // context gathered
         StringBuilder gatheredContext = new StringBuilder();
 
-        System.out.println("\nRunning tools: ");
+        // System.out.println("\nRunning tools: ");//(debug)
 
         List<String> termsToSearch = searchTitles.isEmpty()
                 ? List.of(userQuery)   // fallback if the model gave nothing usable
@@ -92,7 +92,7 @@ class wikipediaAgent{
         }
 
         //context gathered.
-        System.out.println("\nGathered context:\n" + gatheredContext);
+        //System.out.println("\nGathered context:\n" + gatheredContext); //(debug)
 
         String finalAnswer = answerWithContext(userQuery, gatheredContext.toString(), tokenBudget);
         System.out.println("\nFinal Answer:\n" + finalAnswer);
@@ -122,14 +122,14 @@ class wikipediaAgent{
                             
                                 "Given the user question below, decide:\n" +
                                 "1. Which tool(s) are needed, in order.\n" +
-                                "2.How may tokens the final answer will likely need (simple factual = 100 to 500, detailed explaination = 500-1000, multi-topic = 1000-3000, muti-topic and very complex problem (eg. code, research papers, new studies , etc)= 3000-10000 <MAX TOKEN COUNT IS 128000>)\n"+
+                                "2.How may tokens the final answer will likely need (simple factual = 100 ~ 500, detailed explaination = 500~1000, multi-topic = 1000~2000 <MAX TOKEN COUNT IS 2000>)\n"+
                                 "3. Given this user query, output the best Wikipedia article title(s) to search for.\n"+
                                 "Reply int EXACTLY this format, Nothing else:\n"+
                                 "TOKENS: <single integer only, no ranges, no dashes - e.g 800>\n" +
                                 "WIKIPEDIA_SEARCH_TITLE(s): <article title eg. query - 'I want to understand how black holes form, what happens at the event horizon and how Hawking radiation works, also who discovered them' then titles would be 'Black hole', 'Event horizon', 'Hawking radiation' or eg. 'what are persian cats', titles would be 'persian cats'>";
     
         response = callModel(instructions + userQuery, 100); // fixed 100 — just needs 2 short lines back
-        System.out.println("PLAN IS :" + response);
+        // System.out.println("PLAN IS :" + response); //(debug)
         return response.trim();
     }
 
@@ -179,7 +179,7 @@ class wikipediaAgent{
                 resultBuilder.append(c);
             }
         }
-        System.out.println("RAW LLM BODY: " + body);
+        // System.out.println("RAW LLM BODY: " + body); //(debug)
         String result = resultBuilder.toString();
 
         // Safely unescape standard JSON sequences
@@ -223,7 +223,7 @@ class wikipediaAgent{
     
         HttpResponse<String> searchRes = client.send(searchReq, HttpResponse.BodyHandlers.ofString());
         String searchBody = searchRes.body();
-        System.out.println("OpenSearch result: " + searchBody);
+        // System.out.println("OpenSearch result: " + searchBody); //(debug)
         if (searchBody.contains(",[],")) {
             return new WikipediaResult(searchQuery, "No Wikipedia article found for: " + searchQuery);
         }
@@ -237,7 +237,7 @@ class wikipediaAgent{
             return new WikipediaResult(searchQuery, "No search results found for: " + searchQuery);
         }
         String exactTitle = searchBody.substring(titleStart, titleEnd);
-        System.out.println("Exact Wikipedia title found: " + exactTitle);
+        //System.out.println("Exact Wikipedia title found: " + exactTitle);
     
         // STEP 2: fetch a deeper extract (not just the lead paragraph) via action=query
         String extractUrl = "https://en.wikipedia.org/w/api.php?action=query&prop=extracts"
@@ -253,7 +253,7 @@ class wikipediaAgent{
                 .build();
         HttpResponse<String> extractRes = client.send(extractReq, HttpResponse.BodyHandlers.ofString());
         String body = extractRes.body();
-        System.out.println("RAW BODY: " + body.substring(0, Math.min(500, body.length())));
+        //System.out.println("RAW BODY: " + body.substring(0, Math.min(500, body.length())));
     
         // resolved canonical title (handles redirects)
         String resolvedTitle = exactTitle;
