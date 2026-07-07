@@ -22,7 +22,7 @@ jobs:
           java-version: '21'
 
       - name: Compile
-        run: javac main.java
+        run: javac wikipediaAgent.java
 
       - name: Run
         run: java wikipediaAgent "What is a black hole?"

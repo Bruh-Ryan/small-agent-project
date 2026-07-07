@@ -16,27 +16,14 @@ class wikipediaAgent{
     record WikipediaResult(String resolvedTitle, String summary) {}
 
     public static void main(String []r)throws Exception{
-
-        System.out.println("WELCOME");
-        long startTime = System.currentTimeMillis();
-        long timeout = definedTimer*60*1000L;
-
-        // while(true){
-        //     if(System.currentTimeMillis()-startTime >=timeout){
-        //         System.out.print("Turing off");
-        //         break;
-        //     }
-        //     searchBar();
-        // }
-        searchBar();
-       
+        if (apiKey == null || apiKey.isBlank()) {
+            System.out.println("Missing OPENROUTER_API_KEY");
+            return;
+        }
+        String userQuery = r.length > 0 ? String.join(" ", r) : "What is a quasar?";
+        searchBar(userQuery);
     }
-    public static void searchBar() throws Exception {
-
-        Scanner input = new Scanner(System.in);
-        System.out.println("==================Enter your Querry===================");
-        String userQuery = input.nextLine();
-        System.out.println("======================================================");
+    public static void searchBar(String userQuery) throws Exception {
         String plan = plannerResponse(userQuery);
 
         System.out.println("Plannning...");
@@ -98,7 +85,7 @@ class wikipediaAgent{
         System.out.println("\nFinal Answer:\n" + finalAnswer);
     }
     //used for parsing titles wiki title(s) 
-    private static List<String> parseTitles(String raw) {
+    static List<String> parseTitles(String raw) {
         List<String> titles = new ArrayList<>();
         if (raw == null || raw.isBlank()) return titles;
 
