@@ -70,13 +70,35 @@ class wikipediaAgent{
         // 2. Wikipedia search on the raw user query (discovery)
         Set<String> termsToSearch = new LinkedHashSet<>(searchTitles);
 
-        // Discovery: search Wikipedia for the raw user query
+        // Discovery: search Wikipedia for the raw user query.
+        // Keep only the top few relevance-ranked hits, and drop titles that share
+        // no meaningful word with the query (filters out junk like "PlayStation 5"
+        // matching on "Jaguar" the game console).
         if (!searchTitles.contains(userQuery)) {
             List<String> discovered = searchWikipediaTitles(userQuery, 5);
-            termsToSearch.addAll(discovered);
+            Set<String> queryWords = keywordSet(userQuery);
+            int kept = 0;
+            for (String title : discovered) {
+                if (kept >= 3) break;
+                if (shareKeyword(queryWords, keywordSet(title))) {
+                    termsToSearch.add(title);
+                    kept++;
+                }
+            }
         }
 
         System.out.println("Final search terms: " + termsToSearch);
+
+        // Is this a "who currently holds office X" style question? If so, we try the
+        // infobox incumbent field, which reliably names the current holder — instead
+        // of relying on a truncated/mangled "List of ___" table.
+        String ql = userQuery.toLowerCase();
+        boolean currentHolderQuery =
+                (ql.contains("current") || ql.contains("now") || ql.contains("today")
+                        || ql.contains("present"))
+                && (ql.contains("who") || ql.contains("president") || ql.contains("ceo")
+                        || ql.contains("leader") || ql.contains("prime minister")
+                        || ql.contains("head of"));
 
         StringBuilder gatheredContext = new StringBuilder();
 
@@ -84,7 +106,17 @@ class wikipediaAgent{
         Set<String> seenTitles = new HashSet<>();
         for (String term : termsToSearch) {
             WikipediaResult result;
-            if (term.toLowerCase().startsWith("list of")) {
+            if (currentHolderQuery && term.toLowerCase().startsWith("list of")) {
+                // Infobox incumbent already gives the current holder cleanly;
+                // the "List of ___" table is huge, mangled, and truncated — skip it.
+                continue;
+            } else if (currentHolderQuery) {
+                // Try infobox incumbent first for office-style terms.
+                result = fetchIncumbent(term);
+                if (result.summary().isEmpty()) {
+                    result = fetchWikipediaSummary(term, exSentences);
+                }
+            } else if (term.toLowerCase().startsWith("list of")) {
                 result = fetchWikipediaWikitext(term);
                 if (result.summary().isEmpty()) {
                     result = fetchWikipediaSummary(term, exSentences);
@@ -96,9 +128,26 @@ class wikipediaAgent{
                 continue;
             }
             seenTitles.add(result.resolvedTitle());
+
+            // Skip results that carry no usable information so they don't clutter
+            // the context (empty summaries, or "No Wikipedia article found" /
+            // "No extract found" placeholders).
+            String summary = result.summary();
+            if (summary.isBlank()
+                    || summary.startsWith("No Wikipedia article found")
+                    || summary.startsWith("No extract found")) {
+                System.out.println("  [skip] " + result.resolvedTitle()
+                        + " (no usable content)");
+                continue;
+            }
+
             gatheredContext.append("Wikipedia (").append(result.resolvedTitle()).append("): ")
-                        .append(result.summary()).append("\n");
-            System.out.println("  [" + result.resolvedTitle() + ": " + result.summary().length() + " chars]");
+                        .append(summary).append("\n");
+            System.out.println("  [" + result.resolvedTitle() + ": " + summary.length() + " chars]");
+
+            // Courtesy pause between terms so we stay under Wikipedia's rate limit
+            // rather than relying on backoff to recover after tripping it.
+            Thread.sleep(200);
         }
 
         System.out.println("\nGathered context:\n" + gatheredContext);
@@ -122,6 +171,28 @@ class wikipediaAgent{
             }
         }
         return titles;
+    }
+
+    // Lowercased set of "meaningful" words (length > 3, drops common stopwords).
+    static Set<String> keywordSet(String text) {
+        Set<String> stop = Set.of("the", "and", "that", "was", "were", "with",
+                "about", "from", "this", "tell", "what", "which", "whose",
+                "focusing", "released", "its", "for", "are", "who");
+        Set<String> words = new HashSet<>();
+        for (String w : text.toLowerCase().split("[^a-z0-9]+")) {
+            if (w.length() > 3 && !stop.contains(w)) {
+                words.add(w);
+            }
+        }
+        return words;
+    }
+
+    // True if the two keyword sets share at least one word.
+    static boolean shareKeyword(Set<String> a, Set<String> b) {
+        for (String w : a) {
+            if (b.contains(w)) return true;
+        }
+        return false;
     }
    public static String plannerResponse(String userQuery) throws Exception {
     String response = "";
@@ -170,7 +241,10 @@ class wikipediaAgent{
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         String body = response.body();
     
-        JSONObject json = new JSONObject(body);
+        JSONObject json = parseJsonSafe(body);
+        if (json == null || !json.has("choices")) {
+            return "Model call failed (no choices). Raw response: " + body;
+        }
         JSONArray choices = json.getJSONArray("choices");
         if (choices.isEmpty()) {
             return "Could not parse response: " + body;
@@ -187,12 +261,70 @@ class wikipediaAgent{
                 "- Base all specific facts, numbers, names, and dates strictly on the context provided.\n" +
                 "- You may use general reasoning or well-known background knowledge only to connect ideas or explain terms, " +
                 "not to supply specific facts, figures, or dates that aren't in the context.\n" +
-                "- If a specific fact needed to fully answer isn't in the context, say so explicitly " +
-                "(e.g. 'the provided context doesn't specify X') rather than filling it in from memory.\n" +
+                "- If the context clearly describes the SAME entity the user is asking about but under a " +
+                "slightly different name or description (e.g. the user says 'the band X' but the context " +
+                "describes a solo musician named X, or a minor wording/spelling difference), treat it as a " +
+                "match: answer using that context and briefly note the correction " +
+                "(e.g. 'X is actually a solo musician, not a band'). Do not refuse over a near-miss in wording.\n" +
+                "- Only say the information isn't available when the context genuinely does not cover the " +
+                "subject at all. If a specific sub-fact needed to fully answer isn't in the context, answer " +
+                "what you can and say which part isn't specified, rather than refusing entirely.\n" +
                 "Context:\n" + context + "\n" +
                 "Question: " + question;
             return callModel(instructions, tokenBudget);
         }
+
+    // Performs an HTTP GET with a descriptive User-Agent and automatic retry/backoff
+    // when Wikipedia rate-limits us. Wikipedia returns a plain-text "too many requests"
+    // body (not JSON) when throttled; we detect that and wait, doubling the delay each
+    // attempt. Returns the final response body (which the caller still parses safely).
+    static String httpGetWithRetry(String url) throws Exception {
+        int maxAttempts = 4;
+        long backoffMs = 500;
+        String body = "";
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .header("User-Agent",
+                            "small-agent-project/1.0 (learning project; contact: ryan@example.com)")
+                    .GET()
+                    .build();
+            HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+            body = res.body();
+
+            boolean rateLimited = res.statusCode() == 429
+                    || (body != null && body.contains("too many requests"));
+            if (!rateLimited) {
+                return body;
+            }
+            if (attempt < maxAttempts) {
+                System.out.println("  [rate-limited] waiting " + backoffMs
+                        + "ms before retry " + (attempt + 1) + "/" + maxAttempts);
+                Thread.sleep(backoffMs);
+                backoffMs *= 2;
+            }
+        }
+        return body; // give up; caller's parseJsonSafe will skip it
+    }
+
+    // Safely parse a response body into a JSONObject.
+    // Returns null (instead of throwing) if the body is empty or not a JSON object
+    // (e.g. Wikipedia returned an HTML error page or a rate-limit response).
+    static JSONObject parseJsonSafe(String body) {
+        if (body == null) return null;
+        String trimmed = body.trim();
+        if (trimmed.isEmpty() || trimmed.charAt(0) != '{') {
+            System.out.println("  [warn] non-JSON response skipped: "
+                    + trimmed.substring(0, Math.min(80, trimmed.length())));
+            return null;
+        }
+        try {
+            return new JSONObject(trimmed);
+        } catch (org.json.JSONException e) {
+            System.out.println("  [warn] JSON parse failed, skipping: " + e.getMessage());
+            return null;
+        }
+    }
 
     // Searches Wikipedia via list=search and returns up to `limit` real article titles.
     static List<String> searchWikipediaTitles(String query, int limit) throws Exception {
@@ -202,14 +334,11 @@ class wikipediaAgent{
                 + "&srlimit=" + limit
                 + "&format=json";
 
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("User-Agent", "small-agent-project/1.0 (learning project)")
-                .GET()
-                .build();
-
-        HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
-        JSONObject json = new JSONObject(res.body());
+        String body = httpGetWithRetry(url);
+        JSONObject json = parseJsonSafe(body);
+        if (json == null || !json.has("query")) {
+            return titles; // empty on bad response
+        }
         JSONArray results = json.getJSONObject("query").getJSONArray("search");
         for (int i = 0; i < results.length(); i++) {
             titles.add(results.getJSONObject(i).getString("title"));
@@ -237,15 +366,12 @@ class wikipediaAgent{
                 + URLEncoder.encode(exactTitle, StandardCharsets.UTF_8)
                 + "&format=json";
     
-        HttpRequest extractReq = HttpRequest.newBuilder()
-                .uri(URI.create(extractUrl))
-                .header("User-Agent", "small-agent-project/1.0 (learning project)")
-                .GET()
-                .build();
-        HttpResponse<String> extractRes = client.send(extractReq, HttpResponse.BodyHandlers.ofString());
-        String body = extractRes.body();
+        String body = httpGetWithRetry(extractUrl);
     
-        JSONObject json = new JSONObject(body);
+        JSONObject json = parseJsonSafe(body);
+        if (json == null || !json.has("query")) {
+            return new WikipediaResult(exactTitle, "No extract found (bad response).");
+        }
         JSONObject pages = json.getJSONObject("query").getJSONObject("pages");
     
         String resolvedTitle = exactTitle;
@@ -264,6 +390,68 @@ class wikipediaAgent{
             return new WikipediaResult(resolvedTitle, "No extract found.");
         }
         return new WikipediaResult(resolvedTitle, extract);
+    }
+
+    // Fetches the incumbent/current holder of an office from the article's infobox.
+    // Office articles (e.g. "President of the United States") have an infobox with an
+    // "incumbent = <Name>" field. Section 0 (lead + infobox) is small, so it is never
+    // truncated, and this avoids the mangled-table / truncation problems of the
+    // "List of ___" approach entirely. Returns empty summary if no incumbent found.
+    public static WikipediaResult fetchIncumbent(String searchQuery) throws Exception {
+        String exactTitle = resolveWikipediaTitle(searchQuery);
+        if (exactTitle == null) {
+            return new WikipediaResult(searchQuery, "");
+        }
+
+        String url = "https://en.wikipedia.org/w/api.php?action=parse&page="
+                + URLEncoder.encode(exactTitle, StandardCharsets.UTF_8)
+                + "&prop=wikitext&section=0&format=json";
+
+        String body = httpGetWithRetry(url);
+        JSONObject json = parseJsonSafe(body);
+        if (json == null || !json.has("parse")) {
+            return new WikipediaResult(exactTitle, "");
+        }
+        String wikitext = json.getJSONObject("parse")
+                            .getJSONObject("wikitext")
+                            .getString("*");
+
+        // Find the infobox "incumbent" line, e.g.:  | incumbent = [[Donald Trump]]
+        String incumbent = extractInfoboxField(wikitext, "incumbent");
+        if (incumbent.isEmpty()) {
+            // Some office infoboxes use "office_holder" or "current" instead.
+            incumbent = extractInfoboxField(wikitext, "office_holder");
+        }
+        if (incumbent.isEmpty()) {
+            incumbent = extractInfoboxField(wikitext, "incumbentsince");
+        }
+        if (incumbent.isEmpty()) {
+            return new WikipediaResult(exactTitle, "");
+        }
+        return new WikipediaResult(exactTitle,
+                "Current holder of this office (from infobox): " + incumbent);
+    }
+
+    // Extracts a single infobox field value by name from raw wikitext, cleaning
+    // wiki markup ([[links]], {{templates}}, refs) into plain text.
+    static String extractInfoboxField(String wikitext, String field) {
+        // Match "| field = value" up to the next line that starts a new "| key =" or "}}".
+        Pattern p = Pattern.compile(
+                "\\|\\s*" + Pattern.quote(field) + "\\s*=\\s*(.+?)\\s*(?=\\n\\s*\\||\\n\\}\\})",
+                Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+        Matcher m = p.matcher(wikitext);
+        if (!m.find()) return "";
+        String raw = m.group(1);
+        // Strip <ref>...</ref>
+        raw = raw.replaceAll("(?s)<ref[^>]*>.*?</ref>", "");
+        raw = raw.replaceAll("(?s)<ref[^>]*/>", "");
+        // [[Link|Text]] -> Text ; [[Link]] -> Link
+        raw = raw.replaceAll("\\[\\[(?:[^|\\]]*\\|)?([^\\]]+)\\]\\]", "$1");
+        // {{template|...}} -> drop entirely (dates like {{cite}} etc. are noise here)
+        raw = raw.replaceAll("\\{\\{[^}]*\\}\\}", "");
+        // Collapse whitespace and trim leftover markup
+        raw = raw.replaceAll("'''?", "").replaceAll("\\s+", " ").trim();
+        return raw;
     }
 
     // Converts a raw wikitext table (between {| and |}) into a pipe-delimited text format.
@@ -299,14 +487,11 @@ class wikipediaAgent{
                 + URLEncoder.encode(exactTitle, StandardCharsets.UTF_8)
                 + "&prop=wikitext&format=json";
 
-        HttpRequest req = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("User-Agent", "small-agent-project/1.0 (learning project)")
-                .GET()
-                .build();
-
-        HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
-        JSONObject json = new JSONObject(res.body());
+        String body = httpGetWithRetry(url);
+        JSONObject json = parseJsonSafe(body);
+        if (json == null || !json.has("parse")) {
+            return new WikipediaResult(exactTitle, ""); // caller falls back
+        }
         String wikitext = json.getJSONObject("parse")
                             .getJSONObject("wikitext")
                             .getString("*");
