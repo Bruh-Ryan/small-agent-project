@@ -21,8 +21,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Download JSON library
+        run: curl -sL -o json-20240303.jar https://repo1.maven.org/maven2/org/json/json/20240303/json-20240303.jar
+
       - name: Compile
-        run: javac wikipediaAgent.java
+        run: javac -cp json-20240303.jar wikipediaAgent.java
 
       - name: Run
-        run: java wikipediaAgent "What is a black hole?"
+        run: java -cp json-20240303.jar:. wikipediaAgent "What is a black hole?"
