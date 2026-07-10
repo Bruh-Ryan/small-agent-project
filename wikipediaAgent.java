@@ -1,3 +1,4 @@
+//java -cp .:json-20240303.jar wikipediaAgent.java   
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.*;
