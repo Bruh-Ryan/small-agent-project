@@ -2,9 +2,9 @@ name: Java CI
 
 on:
   push:
-    branches: [ main ]
-  pull_request:              # ← now also runs on PRs, catches bugs before merge
-    branches: [ main ]
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
   workflow_dispatch:
 
 jobs:
@@ -28,11 +28,11 @@ jobs:
       - name: Compile tests
         run: javac -cp json-20240303.jar:. wikipediaAgentTest.java
 
-      - name: Run unit tests        # ← runs your 5 parseTitles() tests, no API key needed
+      - name: Run unit tests
         run: java -cp json-20240303.jar:. wikipediaAgentTest
 
-      - name: Smoke test (live run) # ← only runs on push to main, not on PRs
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Smoke test (live run)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: java -cp json-20240303.jar:. wikipediaAgent "What is a black hole?"
