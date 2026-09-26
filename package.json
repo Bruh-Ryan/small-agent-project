@@ -1,0 +1,16 @@
+{
+  "name": "small-agent-project",
+  "version": "1.0.0",
+  "private": true,
+  "description": "MERN Wikipedia knowledge assistant (ported from the Java agent)",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,magenta \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "test": "npm --prefix server test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
