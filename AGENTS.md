@@ -88,6 +88,11 @@ comes back `401`, the cookie name/jar is the first thing to check — not the ro
 - When every model fails, the API returns **HTTP 200** with a friendly
   "providers unavailable" bubble, `model: null`, `requestedModel`, and `failures[]`.
   This is intentional — it is a normal, persisted chat turn, not an error response.
+- One chat is not one topic. `isTopicSwitch(query, history)` (in `planner.js`) flags a
+  self-contained question that shares no keyword with the last two turns; the planner
+  and answer prompts are then told to ignore the earlier subject. A query containing a
+  reference/continuation word ("his", "more", "about it") is **never** a switch — a
+  pronoun follow-up depends on that history. Don't "simplify" this into overlap alone.
 - `FORCE_FAIL_PROVIDERS` is a **test/demo hook only**. Read per request from the
   environment; accepts provider names, model ids, or `all`. Keep it unset in normal use.
 - Only providers with a key in `.env` appear in the catalog; Gemini and HF are

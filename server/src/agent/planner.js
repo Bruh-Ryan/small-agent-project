@@ -1,4 +1,5 @@
 import { callModel } from "./llm.js";
+import { keywordSet, shareKeyword } from "../util/keywords.js";
 
 // Port of Java parseTitles(): splits "Title A, 'Title B', \"Title C\"" into
 // clean title strings, stripping surrounding quotes.
@@ -34,6 +35,29 @@ export function detectFollowUp(query, history) {
   return REFERENCE_PATTERN.test(query) || CONTINUATION_PATTERN.test(query);
 }
 
+// True when the latest question is about a DIFFERENT subject than what the
+// chat has been discussing (celebrity -> "how does JVM architecture work").
+// One conversation is not one topic: users switch subjects freely, and the
+// planner is otherwise told to stay on topic, so it needs an explicit signal.
+//
+// Deliberately conservative — a false positive costs a little prompt clarity,
+// a false negative costs a blended answer, so:
+// - no history            -> not a switch
+// - reference/continuation wording -> NEVER a switch. "When was he born?"
+//   shares no keyword with the history but is unambiguously a follow-up.
+// - self-contained question sharing no keyword with the RECENT turns -> a
+//   switch. Only the last turns count: older messages drag in unrelated words
+//   from earlier topics and would mask a real switch.
+export function isTopicSwitch(query, history) {
+  if (!history || history.length === 0) return false;
+  if (detectFollowUp(query, history)) return false;
+  const queryWords = keywordSet(query);
+  if (queryWords.size === 0) return false;
+  const recent = history.slice(-2);
+  const historyWords = keywordSet(recent.map((m) => m.text).join(" "));
+  return !shareKeyword(queryWords, historyWords);
+}
+
 // Cleans the rewrite model's output down to the bare question.
 export function extractStandalone(raw, fallback) {
   let out = String(raw ?? "").trim();
@@ -59,7 +83,9 @@ export async function rewriteStandaloneQuery(query, history, model = undefined) 
     "Rewrite the user's latest question as a standalone question using the " +
     "conversation history so it can be understood with no other context. " +
     "Preserve the exact original intent. If it is already standalone, return " +
-    "it unchanged. Reply with ONLY the rewritten question, nothing else.\n\n" +
+    "it unchanged. If it is about a completely different subject than the " +
+    "history, return it unchanged too. " +
+    "Reply with ONLY the rewritten question, nothing else.\n\n" +
     "Conversation history:\n" +
     history.map((m) => `${m.role}: ${m.text}`).join("\n") +
     `\n\nLatest question: ${query}`;
@@ -89,10 +115,14 @@ const PLANNER_INSTRUCTIONS =
   "(e.g. 'List of presidents of the United States', 'List of CEOs of X'), " +
   "since this list format reliably shows the most recent/current holder " +
   "even if your guess of their name is outdated.\n" +
-  "6. When RECENT CONVERSATION is provided: resolve any reference in the " +
-  "question (pronouns like 'he/his/it/they', 'more', 'again', 'also') against " +
-  "that conversation. Follow-ups stay on the SAME topic — do not switch to a " +
-  "new subject that merely shares a word with the question.\n" +
+    "6. When RECENT CONVERSATION is provided: one chat is NOT one topic — users " +
+    "change subject freely mid-conversation (e.g. one question about a celebrity, " +
+    "the next about JVM architecture). If the latest question is on a NEW subject, " +
+    "ignore the earlier conversation and plan ONLY for the latest question. " +
+    "When the latest question instead CONTINUES the earlier topic, resolve any " +
+    "reference in it (pronouns like 'he/his/it/they', 'more', 'again', 'also') " +
+    "against that conversation. A follow-up must not be pulled back onto the old " +
+    "subject, and a new subject must not be blended with the old one.\n" +
   "7. When the user asks for MORE detail or the CURRENT status of an " +
   "already-discussed topic, output titles for NEW supporting angles (e.g. a " +
   "career/stats/season article, related people or events) in addition to the " +
@@ -103,12 +133,21 @@ const PLANNER_INSTRUCTIONS =
   "WIKIPEDIA_SEARCH_TITLE(s): <article title eg. query - 'I want to understand how black holes form, what happens at the event horizon and how Hawking radiation works, also who discovered them' then titles would be 'Black hole', 'Event horizon', 'Hawking radiation' or eg. 'what are persian cats', titles would be 'persian cats' or eg. 'who is the current president of the United States and when did they take office' then titles would be 'Donald Trump', 'President of the United States', 'List of presidents of the United States'>";
 
 // Optional history → appended context block so the planner can resolve
-// references and keep follow-ups on topic.
-function historyBlock(history) {
+// references and keep follow-ups on topic. topicSwitch flips the framing so a
+// deliberate subject change isn't argued back onto the previous topic.
+export function historyBlock(history, topicSwitch = false) {
   if (!history || history.length === 0) return "";
   const lines = history.map(
     (m) => `${m.role}: ${String(m.text).slice(0, 300)}`
   );
+  if (topicSwitch) {
+    return (
+      "\nRECENT CONVERSATION (the latest question switched subject — use this ONLY " +
+      "if the latest question explicitly refers back to it):\n" +
+      lines.join("\n") +
+      "\n"
+    );
+  }
   return (
     "\nRECENT CONVERSATION (for resolving references — follow-ups stay on the same topic):\n" +
     lines.join("\n") +
@@ -117,9 +156,14 @@ function historyBlock(history) {
 }
 
 // Port of Java plannerResponse(): returns the raw planner text.
-export async function plannerResponse(userQuery, history = [], model = undefined) {
+export async function plannerResponse(
+  userQuery,
+  history = [],
+  model = undefined,
+  topicSwitch = false
+) {
   const { text } = await callModel(
-    PLANNER_INSTRUCTIONS + historyBlock(history) + userQuery,
+    PLANNER_INSTRUCTIONS + historyBlock(history, topicSwitch) + userQuery,
     150,
     model
   );

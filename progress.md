@@ -60,8 +60,10 @@ server/src/
                       auto-retry on 402 (completion credits);
                       formatUnavailable(failures) → friendly message;
                       FORCE_FAIL_PROVIDERS test hook (7)
-  agent/planner.js    parseTitles, detectFollowUp, rewriteStandaloneQuery,
-                      plannerResponse(+history), parsePlan → {tokenBudget, depth, titles}
+  agent/planner.js    parseTitles, detectFollowUp, isTopicSwitch,
+                      rewriteStandaloneQuery, historyBlock(topicSwitch),
+                      plannerResponse(+history, topicSwitch),
+                      parsePlan → {tokenBudget, depth, titles}
   agent/answer.js     answerWithContext(...) → {answer, title}; extractTitle()
                       (TITLE: parsing); 402 prompt-limit context-trim retry
   agent/searchBar.js  orchestration: rewrite → plan → inherit → discover →
@@ -96,7 +98,7 @@ client/src/
   components/         SessionSidebar (model picker grouped by provider <optgroup>,
                       title tooltip) · ChatWindow · MessageBubble (incl. 7
                       .bubble.unavailable) · PlanPanel (fallback summary) · Composer
-server/test/          Vitest — 129 tests (planner, wikipedia, keywords, persistence,
+server/test/          Vitest — 137 tests (planner, wikipedia, keywords, persistence,
                       depth, recency, models, providers, title, auth, unavailable)
 server/scripts/       db-inspect.js, backdate-cache.js, claim-orphan-chats.js,
                       seed-chats.js, cleanup-test-auth.js (Atlas helpers) ·
@@ -416,11 +418,48 @@ it says something useful when *every* provider is unavailable.
 - [ ] **manual (user):** reload the browser and eyeball the grouped picker, a
   `· fell back to …` line, and the unavailable bubble.
 
+### Phase 8 — topic switches mid-conversation (COMPLETE)
+
+Problem: one chat is not one topic. A user asks about a celebrity, then asks how
+JVM architecture works. Three places pushed back:
+
+1. the planner was told *"Follow-ups stay on the SAME topic — do not switch to a
+   new subject"*, so it steered back to the celebrity;
+2. `detectFollowUp` matches `it|this|that|there`, so a new subject phrased with
+   one of those ("how does **it** compare to Python?") was classified as a
+   follow-up — which **inherits the previous turn's titles** (celebrity
+   articles fetched for a Java question) and **suppresses fresh discovery**;
+3. `exchangeBlock` prepended the last two exchanges with no guidance, so the
+   answerer tried to tie the new answer to the old topic.
+
+Fix:
+- [x] `isTopicSwitch(query, history)` — pure, unit-tested. No history → false.
+  Reference/continuation wording → **never** a switch ("when was he born?"
+  shares no keyword but must keep its context). Otherwise: no keyword shared
+  with the **last two** turns (older turns drag in unrelated words and would
+  mask a real switch) → switch. Reuses `keywordSet`/`shareKeyword`.
+- [x] `historyBlock(history, topicSwitch)` — re-frames the block as "the latest
+  question switched subject — use this ONLY if it refers back".
+- [x] planner instruction #6 reworded: a new subject is planned on its own; a
+  continuation still resolves pronouns. Neither is pulled onto the other.
+- [x] `exchangeBlock(history, topicSwitch)` + `buildPrompt` — "Answer ONLY the
+  latest question. Do not connect it to the earlier subject."
+- [x] `rewriteStandaloneQuery` — "if it is about a completely different subject
+  than the history, return it unchanged".
+- [x] `searchBar` computes it once, threads it to planner + answer, logs
+  `[topic-switch]`, and returns `topicSwitch` in the result for debug.
+- [x] **137/137 tests** (8 new, all mocked). No client change.
+- Note: title inheritance and discovery suppression are left as-is on purpose —
+  a flagged switch implies `detectFollowUp` false, which already means no
+  inherited titles and normal discovery. Changing that search-set logic would
+  re-open the Phase 5 tuning.
+
 ## Test status
 
-`npm test` → **129/129 passing** (Vitest, server):
+`npm test` → **137/137 passing** (Vitest, server):
 planner (parseTitles port, parsePlan incl. DEPTH, detectFollowUp,
-extractStandalone) · wikipedia (extractInfoboxField, formatWikiTable) ·
+isTopicSwitch, extractStandalone, topic-switch prompt framing) ·
+wikipedia (extractInfoboxField, formatWikiTable) ·
 keywords · persistence (buildTitle, cacheKey, ttlFor) ·
 depth (chooseFetchPath, buildExtractUrl, capExtract) ·
 recency (isRecencyQuery, isFresh age gate) ·

@@ -2,6 +2,7 @@ import {
   plannerResponse,
   parsePlan,
   detectFollowUp,
+  isTopicSwitch,
   rewriteStandaloneQuery,
 } from "./planner.js";
 import { answerWithContext } from "./answer.js";
@@ -51,13 +52,20 @@ export async function searchBar(userQuery, agentContext = {}) {
   // 1. Follow-up? Rewrite it standalone (small extra call) so the planner
   //    and discovery work with a self-contained question.
   const followUp = detectFollowUp(userQuery, history);
+  // A chat is not one topic: the user may jump from a celebrity to JVM
+  // architecture. Tell the planner and the answerer to stay on the newest
+  // subject instead of blending it with the old one.
+  const topicSwitch = isTopicSwitch(userQuery, history);
   let planningQuery = userQuery;
   if (followUp) {
     planningQuery = await rewriteStandaloneQuery(userQuery, history, model);
     console.log(`[follow-up] "${userQuery}" → "${planningQuery}"`);
   }
+  if (topicSwitch) {
+    console.log(`[topic-switch] new subject: "${userQuery}"`);
+  }
 
-  const plan = await plannerResponse(planningQuery, history, model);
+  const plan = await plannerResponse(planningQuery, history, model, topicSwitch);
   console.log("Plannning...");
 
   const { tokenBudget, depth, searchTitles } = parsePlan(plan);
@@ -177,7 +185,7 @@ export async function searchBar(userQuery, agentContext = {}) {
       gatheredContext,
       tokenBudget,
       history,
-      { recency, model, wantTitle }
+      { recency, model, wantTitle, topicSwitch }
     );
   console.log("\nFinal Answer:\n" + answer);
 
@@ -199,6 +207,9 @@ export async function searchBar(userQuery, agentContext = {}) {
     searchTitles,
     followUp,
     rewrittenQuery: followUp ? planningQuery : null,
+    // True when this message is about a new subject than the rest of the chat
+    // (the planner/answer prompts were told to ignore the earlier topic).
+    topicSwitch,
     inheritedTitles,
     terms: [...termsToSearch],
     fetched,

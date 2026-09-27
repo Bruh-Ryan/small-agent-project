@@ -1,14 +1,24 @@
 import { callModel } from "./llm.js";
 
 // Recent exchanges give the answerer the pronoun/topic context so follow-ups
-// read naturally ("How big are they?" → "They range from…").
-function exchangeBlock(history) {
+// read naturally ("How big are they?" → "They range from…"). topicSwitch marks
+// a deliberate subject change, so the older turns must not bleed in.
+export function exchangeBlock(history, topicSwitch = false) {
   if (!history || history.length === 0) return "";
   const last = history.slice(-2);
+  const lines = last
+    .map((m) => `${m.role}: ${String(m.text).slice(0, 300)}`)
+    .join("\n");
+  if (topicSwitch) {
+    return (
+      "RECENT EXCHANGE (earlier subject — the user has since switched topic):\n" +
+      lines +
+      "\nThe latest question is about a DIFFERENT subject. Answer ONLY the latest " +
+      "question below. Do not connect it to the earlier subject.\n\n"
+    );
+  }
   return (
-    "RECENT EXCHANGE (for context, not for repeating):\n" +
-    last.map((m) => `${m.role}: ${String(m.text).slice(0, 300)}`).join("\n") +
-    "\n\n"
+    "RECENT EXCHANGE (for context, not for repeating):\n" + lines + "\n\n"
   );
 }
 
@@ -63,7 +73,12 @@ export function extractTitle(raw) {
 
 // Builds the full answer prompt. Extracted so the prompt-limit retry can
 // rebuild it with a trimmed context.
-function buildPrompt(question, context, history, { recency, wantTitle }) {
+export function buildPrompt(
+  question,
+  context,
+  history,
+  { recency, wantTitle, topicSwitch = false }
+) {
   const recencyRule = recency
     ? "- The user asks about CURRENT or RECENT information. Wikipedia can lag " +
       "real-world events. Unless the context explicitly states a recent fact " +
@@ -74,7 +89,7 @@ function buildPrompt(question, context, history, { recency, wantTitle }) {
     : "";
 
   return (
-    exchangeBlock(history) +
+    exchangeBlock(history, topicSwitch) +
     "Using the following context, answer the user's question clearly.\n" +
     "Rules:\n" +
     "- Base all specific facts, numbers, names, and dates strictly on the context provided.\n" +
@@ -126,9 +141,9 @@ export async function answerWithContext(
   context,
   tokenBudget,
   history = [],
-  { recency = false, model = undefined, wantTitle = false } = {}
+  { recency = false, model = undefined, wantTitle = false, topicSwitch = false } = {}
 ) {
-  const opts = { recency, wantTitle };
+  const opts = { recency, wantTitle, topicSwitch };
   // +40 completion tokens when a TITLE line is requested so the final line
   // isn't cut off by max_tokens.
   const maxTokens = wantTitle ? tokenBudget + 40 : tokenBudget;
