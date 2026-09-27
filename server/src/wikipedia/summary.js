@@ -5,6 +5,18 @@ import { withCache, cacheKey } from "./cache.js";
 
 const API = "https://en.wikipedia.org/w/api.php";
 
+// MediaWiki hard-caps `exchars` at ~1200 for non-continuous extracts (the
+// original Java agent silently hit this too — its "exchars=4000" always
+// returned ~1200 chars). So we request UN-capped text and slice ourselves.
+const FULL_EXTRACT_CHARS = 7000;
+const LEAD_EXTRACT_CHARS = 4000;
+
+export function capExtract(text, max) {
+  if (!text) return "";
+  if (text.length <= max) return text;
+  return text.slice(0, max) + "\n...[truncated]";
+}
+
 function isUsable(summary) {
   return (
     summary &&
@@ -14,28 +26,30 @@ function isUsable(summary) {
   );
 }
 
-// Port of Java fetchWikipediaSummary(): lead section as plain prose.
-// Returns { resolvedTitle, summary }. (Like the Java version, the
-// exSentences argument is accepted for call-site compatibility but the
-// extract length is governed by exchars=4000.)
-export async function fetchWikipediaSummary(searchQuery, exSentences = 25) {
+// Shared URL builder for both extract depths.
+// - lead : exintro=true → intro section only (uncapped, we slice)
+// - full : NO exintro   → whole-article plaintext (uncapped, we slice)
+export function buildExtractUrl(title, { full = false } = {}) {
+  return (
+    `${API}?action=query&prop=extracts` +
+    `&explaintext=true&redirects=1` +
+    (full ? "" : "&exintro=true") +
+    `&titles=${encodeURIComponent(title)}` +
+    `&format=json`
+  );
+}
+
+async function fetchExtract(searchQuery, { full, maxAgeMs }) {
   const exactTitle = await resolveWikipediaTitle(searchQuery);
   if (exactTitle == null) {
     return { resolvedTitle: searchQuery, summary: `No Wikipedia article found for: ${searchQuery}` };
   }
 
-  const key = cacheKey("summary", exactTitle);
+  const key = cacheKey(full ? "summary-full" : "summary", exactTitle);
   return withCache(
     key,
     async () => {
-      const extractUrl =
-        `${API}?action=query&prop=extracts` +
-        `&exintro=true&exchars=4000` +
-        `&explaintext=true&redirects=1&titles=` +
-        encodeURIComponent(exactTitle) +
-        `&format=json`;
-
-      const body = await httpGetWithRetry(extractUrl);
+      const body = await httpGetWithRetry(buildExtractUrl(exactTitle, { full }));
       const json = parseJsonSafe(body);
       if (!json || !json.query || !json.query.pages) {
         return { resolvedTitle: exactTitle, summary: "No extract found (bad response)." };
@@ -51,8 +65,25 @@ export async function fetchWikipediaSummary(searchQuery, exSentences = 25) {
       if (!extract) {
         return { resolvedTitle, summary: "No extract found." };
       }
+      extract = capExtract(
+        extract,
+        full ? FULL_EXTRACT_CHARS : LEAD_EXTRACT_CHARS
+      );
       return { resolvedTitle, summary: extract };
     },
-    { cacheable: (r) => isUsable(r.summary) } // never cache failures/placeholders
+    { cacheable: (r) => isUsable(r.summary), maxAgeMs } // never cache failures
   );
+}
+
+// Port of Java fetchWikipediaSummary(): lead section as plain prose.
+// `opts.maxAgeMs` (recency queries) rejects cache entries older than 24h.
+export async function fetchWikipediaSummary(searchQuery, exSentences = 25, opts = {}) {
+  return fetchExtract(searchQuery, { full: false, maxAgeMs: opts.maxAgeMs });
+}
+
+// Phase 5B: whole-article plaintext (capped) for DEPTH: full queries —
+// gives the answerer career/season/history material instead of the lead
+// it may have already used in an earlier turn.
+export async function fetchWikipediaFullExtract(searchQuery, opts = {}) {
+  return fetchExtract(searchQuery, { full: true, maxAgeMs: opts.maxAgeMs });
 }

@@ -19,6 +19,10 @@ const messageSchema = new Schema(
 const chatSchema = new Schema(
   {
     title: { type: String, required: true },
+    // Account that owns this conversation (6C). NULL for pre-auth chats —
+    // they never match a user filter, so they're hidden until claimed via
+    // scripts/claim-orphan-chats.js.
+    owner: { type: Schema.Types.ObjectId, ref: "User", default: null, index: true },
     messages: { type: [messageSchema], default: [] },
   },
   { collection: "chats", timestamps: true }
@@ -28,6 +32,19 @@ const chatSchema = new Schema(
 export function buildTitle(query) {
   const clean = String(query).trim().replace(/\s+/g, " ");
   return clean.length > 60 ? clean.slice(0, 57) + "..." : clean;
+}
+
+// Ownership check shared by sessions routes and ask.js. Tolerates null owner
+// (pre-auth docs) and ObjectId/string mismatch (session.userId is a string).
+export function chatOwnedBy(chat, userId) {
+  if (!chat?.owner || !userId) return false;
+  return String(chat.owner) === String(userId);
+}
+
+// Beyond-cap ids from a newest-first list — ask.js deletes these after each
+// save so a user never keeps more than `cap` conversations.
+export function overflowIds(sortedIds, cap = 15) {
+  return sortedIds.slice(cap);
 }
 
 export const Chat = model("Chat", chatSchema);

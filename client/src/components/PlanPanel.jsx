@@ -4,8 +4,14 @@ export default function PlanPanel({ debug }) {
   const [open, setOpen] = useState(false);
 
   const summary = `Plan · ${debug.tokenBudget} tokens · ${
-    debug.fetched?.length || 0
-  } source${(debug.fetched?.length || 0) === 1 ? "" : "s"} · ${debug.durationMs}ms`;
+    debug.depth === "full" ? "full depth" : "lead depth"
+  } · ${debug.fetched?.length || 0} source${
+    (debug.fetched?.length || 0) === 1 ? "" : "s"
+  } · ${debug.durationMs}ms${debug.followUp ? " · follow-up" : ""}${
+    debug.recency ? " · recency ≤24h" : ""
+  }${debug.model ? ` · ${debug.model}` : ""}${
+    debug.fallback ? " · fell back" : ""
+  }`;
 
   return (
     <div className="plan-panel">
@@ -19,6 +25,34 @@ export default function PlanPanel({ debug }) {
 
       {open && (
         <div className="plan-body">
+          {debug.fallback && (
+            <section>
+              <h4>Provider fallback</h4>
+              <p className="muted">
+                Requested <code>{debug.requestedModel || debug.fallback.model}</code>{" "}
+                was unavailable ({debug.fallback.reason}) — answered with{" "}
+                <code>{debug.model}</code> instead.
+              </p>
+            </section>
+          )}
+
+          {debug.followUp && (
+            <section>
+              <h4>Follow-up detected</h4>
+              <pre>{debug.rewrittenQuery || "(not rewritten)"}</pre>
+              {debug.inheritedTitles?.length > 0 && (
+                <>
+                  <h4>Inherited from earlier turns</h4>
+                  <div className="tag-row">
+                    {debug.inheritedTitles.map((t) => (
+                      <span key={t} className="tag inherited">{t}</span>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+
           <section>
             <h4>Planner output</h4>
             <pre>{debug.plan}</pre>

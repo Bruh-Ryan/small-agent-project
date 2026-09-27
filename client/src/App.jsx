@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Routes, Route, useNavigate, useParams, useLocation } from "react-router-dom";
-import { ask, listSessions, getSession, deleteSession } from "./api";
+import { Routes, Route, useNavigate, useParams, useLocation, Navigate } from "react-router-dom";
+import { ask, listSessions, getSession, deleteSession, getModels, me, logout } from "./api";
 import SessionSidebar from "./components/SessionSidebar.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
 import Composer from "./components/Composer.jsx";
+import LoginPage from "./components/LoginPage.jsx";
 import "./App.css";
+
+// Shown until GET /api/models succeeds — keeps the picker visible always.
+const MODEL_FALLBACK = [{ id: "openai/gpt-4o", label: "GPT-4o (default)" }];
 
 // One chat view; mounted for both "/" and "/session/:sessionId".
 // Session id comes from the route param (null on the new-chat route).
@@ -61,6 +65,86 @@ function App() {
   const [error, setError] = useState("");
   const [sidebarError, setSidebarError] = useState("");
 
+  // Session state: null until GET /api/auth/me settles (401 → logged out).
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    me()
+      .then((r) => {
+        if (!cancelled) setUser(r.user);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAuthLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Any API 401 (expired session mid-use, logged out elsewhere) → login.
+  const dropToLogin = useCallback(() => {
+    setUser(null);
+    setSessions([]);
+    setMessages([]);
+    setError("");
+    setSidebarError("");
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("wiki:unauthorized", dropToLogin);
+    return () => window.removeEventListener("wiki:unauthorized", dropToLogin);
+  }, [dropToLogin]);
+
+  // Model picker: curated list from /api/models, choice persisted locally.
+  // Fallback entry guarantees the <select> always renders even if the API
+  // is unreachable (the old hard gate made the picker vanish silently).
+  const [models, setModels] = useState(MODEL_FALLBACK);
+  const [model, setModel] = useState(
+    () => localStorage.getItem("wiki:model") || MODEL_FALLBACK[0].id
+  );
+  const [modelsError, setModelsError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    let attempt = 0;
+
+    (async () => {
+      while (attempt < 3 && !cancelled) {
+        attempt++;
+        try {
+          const { models: list, default: def } = await getModels();
+          if (cancelled) return;
+          setModels(list);
+          setModelsError("");
+          const saved = localStorage.getItem("wiki:model");
+          setModel(saved && list.some((m) => m.id === saved) ? saved : def);
+          return;
+        } catch {
+          if (cancelled) return;
+          // Server may still be starting — retry before giving up.
+          if (attempt >= 3) {
+            setModelsError("Model list unavailable — showing default only");
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleModelChange = useCallback((id) => {
+    setModel(id);
+    localStorage.setItem("wiki:model", id);
+  }, []);
+
   const activeId =
     location.pathname.match(/^\/session\/([^/]+)$/)?.[1] || null;
 
@@ -73,9 +157,10 @@ function App() {
     }
   }, []);
 
+  // Load the list only when authenticated; clear it when not.
   useEffect(() => {
-    refreshSessions();
-  }, [refreshSessions]);
+    if (user) refreshSessions();
+  }, [user, refreshSessions]);
 
   // Runs the agent: optimistic user bubble → answer bubble with debug payload.
   const handleAsk = useCallback(
@@ -84,7 +169,7 @@ function App() {
       setMsgs((m) => [...m, { role: "user", text: query }]);
       setPending(true);
       try {
-        const res = await ask(query, sessionId);
+        const res = await ask(query, sessionId, model || undefined);
         setMsgs((m) => [
           ...m,
           {
@@ -93,7 +178,17 @@ function App() {
             debug: {
               plan: res.plan,
               tokenBudget: res.tokenBudget,
+              depth: res.depth,
+              recency: res.recency,
+              model: res.model,
+              requestedModel: res.requestedModel,
+              fallback: res.fallback,
+              allFailed: res.allFailed,
+              failures: res.failures,
               searchTitles: res.searchTitles,
+              followUp: res.followUp,
+              rewrittenQuery: res.rewrittenQuery,
+              inheritedTitles: res.inheritedTitles,
               terms: res.terms,
               fetched: res.fetched,
               skipped: res.skipped,
@@ -112,7 +207,7 @@ function App() {
         setPending(false);
       }
     },
-    [navigate, refreshSessions]
+    [navigate, refreshSessions, model]
   );
 
   const handleSelect = (id) => navigate(`/session/${id}`);
@@ -122,6 +217,28 @@ function App() {
     setError("");
     navigate("/");
   };
+
+  // Successful login/register: adopt the user and return to where they
+  // were headed (or "/" for a fresh visit).
+  const loginFrom =
+    location.pathname && location.pathname !== "/login" ? location.pathname : "/";
+  const handleAuth = useCallback(
+    (u) => {
+      setUser(u);
+      navigate(loginFrom, { replace: true });
+    },
+    [navigate, loginFrom]
+  );
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await logout();
+    } catch {
+      // Even if the server call fails, drop the local session anyway.
+    }
+    dropToLogin();
+    navigate("/login", { replace: true });
+  }, [dropToLogin, navigate]);
 
   const handleDelete = async (id) => {
     try {
@@ -136,6 +253,14 @@ function App() {
     }
   };
 
+  if (authLoading) {
+    return <div className="auth-loading">Loading…</div>;
+  }
+
+  if (!user) {
+    return <LoginPage onAuth={handleAuth} />;
+  }
+
   return (
     <div className="layout">
       <SessionSidebar
@@ -145,8 +270,15 @@ function App() {
         onNew={handleNew}
         onDelete={handleDelete}
         loadError={sidebarError}
+        models={models}
+        model={model}
+        onModelChange={handleModelChange}
+        modelsError={modelsError}
+        user={user}
+        onLogout={handleLogout}
       />
       <Routes>
+        <Route path="/login" element={<Navigate to="/" replace />} />
         <Route
           path="/session/:sessionId"
           element={

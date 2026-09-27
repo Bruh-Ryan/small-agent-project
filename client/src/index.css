@@ -6,6 +6,9 @@
   --text: #e6e8ee;
   --muted: #9aa3b2;
   --accent: #4f8cff;
+  --warn: #fcd34d;
+  --warn-border: #b45309;
+  --warn-bg: #2a1f0b;
 }
 
 * {

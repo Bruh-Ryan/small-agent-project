@@ -1,5 +1,6 @@
 import mongoose from "mongoose";
 import { WikiCache, ttlFor } from "../models/WikiCache.js";
+import { isFresh } from "../util/recency.js";
 
 const DB_CONNECTED = () => mongoose.connection.readyState === 1;
 
@@ -7,15 +8,22 @@ export function cacheKey(kind, id) {
   return `${kind}|${id}`;
 }
 
-// Returns cached data or null (miss / DB down / expired). Never throws —
-// caching must never break the agent pipeline.
-export async function getCached(key) {
+// Returns cached data or null (miss / DB down / expired / too old for
+// maxAgeMs). `maxAgeMs` lets recency queries reject entries older than 24h
+// even when the document TTL (7d) hasn't deleted them yet. Never throws.
+export async function getCached(key, { maxAgeMs } = {}) {
   if (!DB_CONNECTED()) return null;
   try {
     const doc = await WikiCache.findOne({ key }).lean();
     if (!doc) return null;
     // TTL monitor runs ~every 60s, so check staleness ourselves too.
     if (doc.expiresAt && doc.expiresAt.getTime() < Date.now()) return null;
+    // Age gate for "current/latest" queries — stale → refetch live.
+    if (!isFresh(doc.fetchedAt, maxAgeMs)) {
+      const ageH = Math.round((Date.now() - new Date(doc.fetchedAt).getTime()) / 3600000);
+      console.log(`  [cache] stale (${ageH}h old) ${key} — refetching live`);
+      return null;
+    }
     return doc.data;
   } catch (err) {
     console.warn(`[cache] read failed for ${key}: ${err.message}`);
@@ -40,8 +48,8 @@ export async function setCached(key, data) {
 
 // Read-through cache: use stored value if present, otherwise call `fetchFn`,
 // store its result (when cacheable) and return it.
-export async function withCache(key, fetchFn, { cacheable = () => true } = {}) {
-  const hit = await getCached(key);
+export async function withCache(key, fetchFn, { cacheable = () => true, maxAgeMs } = {}) {
+  const hit = await getCached(key, { maxAgeMs });
   if (hit !== null) {
     console.log(`  [cache] hit ${key}`);
     return hit;

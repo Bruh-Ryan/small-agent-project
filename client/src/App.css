@@ -41,6 +41,31 @@
   filter: brightness(1.1);
 }
 
+/* Model picker (Phase 5D) */
+.model-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.model-picker select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  background: var(--bg, #fff);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+/* Error under the picker (models fetch failed) — placed after .sidebar-error
+   so its padding wins without !important. */
 .session-list {
   flex: 1;
   overflow-y: auto;
@@ -56,6 +81,10 @@
 
 .sidebar-error {
   color: #ff6b6b;
+}
+
+.picker-error {
+  padding: 6px 16px;
 }
 
 .session-item {
@@ -210,6 +239,28 @@
   gap: 5px;
 }
 
+/* Every provider was unavailable (free tiers exhausted / all rate-limited). */
+.bubble.unavailable {
+  border-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.unavailable-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--warn-border);
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.unavailable-icon { font-size: 14px; }
+
 .dot {
   width: 7px;
   height: 7px;
@@ -333,6 +384,11 @@
   border-radius: 20px;
 }
 
+.tag.inherited {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .fetched-list {
   list-style: none;
   margin: 0;
@@ -411,9 +467,153 @@
   cursor: default;
 }
 
+/* ---------- auth (6D) ---------- */
+.auth-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: var(--muted);
+}
+
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 20px;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 28px;
+}
+
+.login-card h1 {
+  margin: 0 0 4px;
+  font-size: 1.2rem;
+  text-align: center;
+}
+
+.login-sub {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.login-error {
+  margin-bottom: 14px;
+  padding: 9px 12px;
+  background: #2c1a1d;
+  border: 1px solid #5c2b31;
+  color: #ff9b9b;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.login-field {
+  display: block;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.login-field input {
+  display: block;
+  width: 100%;
+  margin-top: 5px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.login-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.login-submit {
+  width: 100%;
+  padding: 10px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.login-submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.login-toggle {
+  width: 100%;
+  margin-top: 10px;
+  padding: 6px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+/* Sidebar footer: signed-in username + logout */
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
+.user-name {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.logout-btn:hover {
+  color: #ff6b6b;
+  border-color: #ff6b6b;
+}
+
 /* ---------- responsive ---------- */
 @media (max-width: 760px) {
   .sidebar { width: 60px; min-width: 60px; }
   .sidebar-header h1, .session-info, .new-chat { display: none; }
+  /* Keep the model select usable in the 60px rail: label would eat the
+     width and collapse the control to 0px. */
+  .model-picker { padding: 6px 8px; }
+  .model-picker span { display: none; }
+  .model-picker select { min-width: 44px; }
+  .picker-error { display: none; }
   .bubble { max-width: 92%; }
+  .user-name { display: none; }
+  .sidebar-footer { justify-content: center; padding: 8px 4px; }
+  .logout-btn { padding: 4px 6px; font-size: 0.65rem; }
 }
