@@ -31,8 +31,7 @@ jobs:
       - name: Run unit tests
         run: java -cp json-20240303.jar:. wikipediaAgentTest
 
-      - name: Smoke test (live run)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-        env:
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-        run: java -cp json-20240303.jar:. wikipediaAgent "What is a black hole?"
+      # The live smoke test was removed: it spent real OpenRouter quota on every
+      # push to master and made the build depend on a live API. Run it locally
+      # instead: java -cp json-20240303.jar:. wikipediaAgent "What is a black hole?"
+      # The Node app has its own suite in node.yml (npm test, fully mocked).

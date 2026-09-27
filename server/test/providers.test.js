@@ -10,6 +10,7 @@ import {
 } from "../src/agent/providers.js";
 import { callModel, fallbackChain, MAX_FALLBACKS, formatUnavailable } from "../src/agent/llm.js";
 import { availableModels, modelEntry } from "../src/agent/models.js";
+import { config } from "../src/config.js";
 
 // Build a fetch Response-like stub.
 function reply(status, body) {
@@ -157,7 +158,10 @@ describe("callModel dispatch", () => {
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("https://api.groq.com/openai/v1/chat/completions");
-    expect(init.headers.Authorization).toMatch(/^Bearer gsk_/);
+    // The configured key, whatever it is — never a hard-coded prefix, so this
+    // passes with the dummy test keys from vitest.config.js and on CI.
+    expect(init.headers.Authorization).toBe(`Bearer ${config.groqKey}`);
+    expect(config.groqKey).not.toBe("");
     const body = JSON.parse(init.body);
     expect(body.model).toBe("openai/gpt-oss-20b"); // provider prefix stripped
     expect(body.max_tokens).toBe(50);

@@ -460,6 +460,27 @@ Client: `npm --prefix client run build` must stay green.
   (this stalled the 7D e2e run once).
 - `FORCE_FAIL_PROVIDERS` must stay unset outside tests — it silently disables
   providers and makes the app look broken.
+
+## CI
+
+- **`.github/workflows/node.yml`** — `npm test` (server) + `npm run build` (client) on
+  every push/PR to master. Node 24, npm cache, no secrets, no database.
+- **`server/vitest.config.js`** — injects dummy provider keys (+ `MODEL`) into the test
+  env so the suite is green on a fresh clone with no `.env`, and shadows a developer's
+  real `.env` (dotenv never overrides). Every test stubs `fetch`, so the suite **can
+  never spend API quota**. Gemini/HF keys stay unset on purpose to keep the
+  "provider without a key is hidden" paths exercised.
+  - Found and fixed while adding this: `providers.test.js` asserted
+    `Authorization` matches `/^Bearer gsk_/` — i.e. it depended on the *real* Groq
+    secret's format. Now it asserts the header equals `Bearer ${config.groqKey}`, so
+    it passes with dummy keys and on CI. Never assert on real key shapes in tests.
+- **`.github/workflows/java.yml`** — the live OpenRouter smoke step
+  (`wikipediaAgent "What is a black hole?"` on every push to master) was **removed**: it
+  spent real quota per push and made the build depend on a live API. Java compile +
+  unit tests remain (offline). Run the live Java agent locally if needed.
+- Net effect: the badge used to mean "the legacy Java code still compiles"; it now
+  means "the 129 tests and the client build pass".
+
 - MediaWiki `exchars` is silently capped at ~1200 (see Phase 5B) — never
   trust it for size; slice uncapped extracts yourself.
 - `wikipediaAgentTest.java` still exists at root but CI for it was for the

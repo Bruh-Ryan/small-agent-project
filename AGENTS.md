@@ -34,6 +34,16 @@ Auth is mounted at `/api/auth`, **not** `/api/login`.
 `connect.sid` gets "no session cookie" even though login succeeded. If a request
 comes back `401`, the cookie name/jar is the first thing to check — not the route.
 
+## CI
+
+- `.github/workflows/node.yml` runs `npm test` (server) and `npm run build` (client) on
+  every push/PR to master. Both are fully mocked and need no secrets or database.
+- `server/vitest.config.js` injects dummy provider keys, so the suite passes on a fresh
+  clone with no `.env` and **can never spend API quota**. Keep it that way: a test that
+  needs a real key is a bug.
+- `.github/workflows/java.yml` only compiles and unit-tests the legacy Java agent. It
+  deliberately makes **no** live call — do not re-add one.
+
 ## Verifying changes
 
 - **Restart `:3001` after editing anything in `server/src/**`.** Edits are not hot-reloaded
