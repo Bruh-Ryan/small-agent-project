@@ -106,6 +106,8 @@ server/scripts/       db-inspect.js, backdate-cache.js, claim-orphan-chats.js,
                       (4 forced scenarios), phase7-e2e.js (full HTTP path),
                       list-openrouter-free.js, list-provider-models.js
 root: AGENTS.md        working rules for agents (routes, commands, quota discipline)
+      README.md         project pitch + full AWS free-tier walkthrough
+      .gitleaks.toml    secret-scan allowlist
       wikipediaAgent.java, wikipediaAgentTest.java, json-20240303.jar  ← original Java (legacy)
       package.json    root scripts (concurrently runs server+client)
 ```
@@ -119,7 +121,7 @@ npm --prefix client install
 npm run dev                     # both server(:3001) + client(:5173)
 npm run dev:server              # API only  (use when Vite already runs)
 npm run dev:client              # Vite only
-npm test                        # 87 Vitest tests (server)
+npm test                        # 137 Vitest tests (server)
 npm --prefix client run build   # production build check
 ```
 
@@ -414,7 +416,7 @@ it says something useful when *every* provider is unavailable.
     commands, restart-after-edit, run-tests-once, PowerShell 5.1 rules,
     quota discipline, secrets policy.
   - `.env.example` documents `MODEL` and `FORCE_FAIL_PROVIDERS`.
-- [x] `npm test` **129/129**; client build green.
+- [x] `npm test` **137/137**; client build green.
 - [ ] **manual (user):** reload the browser and eyeball the grouped picker, a
   `· fell back to …` line, and the unavailable bubble.
 
@@ -514,6 +516,11 @@ Client: `npm --prefix client run build` must stay green.
     If it ever fires: revoke the credential first, then fix the file — do not widen the
     allowlist to get a green badge.
 
+- **DEPLOYMENT GOTCHAS (not yet coded, documented for the AWS free-tier path):**
+  - `session.js` has `secure: false` and no `app.set("trust proxy")` — behind HTTPS/nginx the cookie must become `secure: true` + `app.set("trust proxy", 1)` or sessions silently stop persisting.
+  - LLM calls take up to ~60s; nginx/ALB default `proxy_read_timeout` is 60s — must be raised to 120s+ or long answers get cut.
+  - Client uses relative `/api` paths and the Vite proxy for dev (same-origin). Split-origin deploy (S3/CloudFront ≠ API) would require `SameSite: none`, `secure: true`, and a CORS allowlist — the EC2 free-tier path keeps one origin to avoid all of this.
+
 ## CI
 
 - **`.github/workflows/node.yml`** — `npm test` (server) + `npm run build` (client) on
@@ -533,6 +540,19 @@ Client: `npm --prefix client run build` must stay green.
   unit tests remain (offline). Run the live Java agent locally if needed.
 - Net effect: the badge used to mean "the legacy Java code still compiles"; it now
   means "the 129 tests and the client build pass".
+
+## Deployment (AWS) — documented in README
+
+- **Chosen path:** EC2 free tier (`t4g.micro` / `t2.micro`), Docker + nginx, single origin (nginx serves React build + proxies `/api` to Node).
+- **Scope this pass:** documented only in README; no Dockerfile, no code changes, no CI deploy pipeline yet.
+- **Pre-deploy code changes required (listed in README):**
+  - `app.set("trust proxy", 1)` in `server/src/index.js`
+  - Session cookie `secure` / `sameSite` env-driven (`NODE_ENV === "production"`)
+  - Nginx `proxy_read_timeout 120s` for long LLM calls
+  - Keep relative `BASE` (same origin) — no CORS/cookie surgery
+  - `.env` via `scp` + `chmod 600` + `docker run --env-file .env` (never in image)
+- **Cost:** $0 for 12 months on `t4g.micro`/`t2.micro` free tier; ~$7–10/mo after.
+- **Not yet done:** Dockerfile, `docker-compose.yml`, GitHub Actions deploy workflow, Certbot automation script.
 
 - MediaWiki `exchars` is silently capped at ~1200 (see Phase 5B) — never
   trust it for size; slice uncapped extracts yourself.
