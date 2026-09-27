@@ -500,6 +500,20 @@ Client: `npm --prefix client run build` must stay green.
 - `FORCE_FAIL_PROVIDERS` must stay unset outside tests — it silently disables
   providers and makes the app look broken.
 
+- **SECURITY (resolved):** commit `3e2921f` ("first comit") committed a real
+  `OPENROUTER_API_KEY` at `.env/.env`; it was deleted in `16c6eed`, but the repo is
+  public and both commits are on `origin/master`, so the value was readable in history.
+  **The key was rotated on 2026-09-27** — that, not history rewriting, is what makes the
+  leak harmless. Groq/Mistral keys and `SESSION_SECRET` were never committed; the
+  `MONGODB_URI` strings in `progress.md`/`db.js` are placeholders, not real hosts.
+  `.gitignore:3` already covers `.env` and `.env/.env`.
+  - New: **`.github/workflows/secret-scan.yml`** — gitleaks over the **checked-out
+    files** on every push, so the next `.env` or pasted key fails CI. Deliberately not a
+    history scan, which would keep failing on the old rotated key. `.gitleaks.toml`
+    allowlists only the literal `test-*-key` placeholders from `server/vitest.config.js`.
+    If it ever fires: revoke the credential first, then fix the file — do not widen the
+    allowlist to get a green badge.
+
 ## CI
 
 - **`.github/workflows/node.yml`** — `npm test` (server) + `npm run build` (client) on

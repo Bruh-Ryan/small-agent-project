@@ -1,0 +1,11 @@
+# gitleaks configuration.
+#
+# We scan the checked-out files (see .github/workflows/secret-scan.yml). History
+# is not scanned: .env was committed once in 3e2921f and later deleted, and that
+# key has been rotated, so it is not a finding worth blocking on forever.
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Dummy provider keys injected by the fully-mocked test suite. These are literal placeholders, never real credentials (see server/vitest.config.js)."
+regexes = ['''test-(openrouter|groq|mistral)-key''']

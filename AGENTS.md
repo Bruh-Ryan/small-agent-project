@@ -43,6 +43,7 @@ comes back `401`, the cookie name/jar is the first thing to check — not the ro
   needs a real key is a bug.
 - `.github/workflows/java.yml` only compiles and unit-tests the legacy Java agent. It
   deliberately makes **no** live call — do not re-add one.
+- `.github/workflows/secret-scan.yml` runs gitleaks on the working tree (see Secrets).
 
 ## Verifying changes
 
@@ -104,6 +105,20 @@ comes back `401`, the cookie name/jar is the first thing to check — not the ro
 commit it, and never echo account passwords into output. Reference variables by name
 only. `meca_riot` is the user's real account — do not modify or delete it. Test
 accounts (e.g. `phase7demo`) must be removed with `phase7-e2e.js cleanup`.
+
+**Known leak (resolved):** commit `3e2921f` committed a real `OPENROUTER_API_KEY` at
+`.env/.env`, and the repo is public, so that value was readable in history. The key was
+**rotated on 2026-09-27**; deleting the file in `16c6eed` did not and never will remove
+it from existing clones, so rotation — not history rewriting — is the fix. Groq, Mistral
+and `SESSION_SECRET` were never committed.
+
+- `Secret scan` CI runs gitleaks over the **checked-out files** on every push. It is
+  deliberately not a history scan, so it will not keep failing on that old finding.
+- If gitleaks ever fires: assume the value is compromised. Revoke it at the provider
+  first, then fix the file. Do not "fix" the workflow or add a blanket allowlist entry
+  to make the badge green.
+- The repo being public is fine for the code, but the Mongo password and any key added
+  later must stay in `.env` only.
 
 ## Before calling a task done
 
