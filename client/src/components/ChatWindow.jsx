@@ -19,6 +19,7 @@ export default function ChatWindow({ messages, pending, historyLoading, onExampl
       <div className="chat-empty">
         <h2>Ask Wikipedia anything</h2>
         <p>The agent plans, fetches articles, and answers with sources.</p>
+        <p className="muted">First load after idle can take ~60s (free instance waking up).</p>
         <div className="examples">
           {EXAMPLES.map((q) => (
             <button key={q} className="example-chip" onClick={() => onExample(q)}>
