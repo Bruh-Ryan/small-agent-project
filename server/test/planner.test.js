@@ -187,6 +187,14 @@ describe("topic-switch prompt framing", () => {
     });
     expect(prompt).toMatch(/Answer ONLY the latest question/i);
   });
+
+  it("buildPrompt identifies as the overpowered Wikipedia search", () => {
+    const prompt = buildPrompt("what can you do", "ctx", [], {
+      recency: false,
+      wantTitle: false,
+    });
+    expect(prompt).toMatch(/overpowered Wikipedia search/i);
+  });
 });
 
 describe("extractStandalone", () => {

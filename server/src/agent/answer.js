@@ -90,6 +90,8 @@ export function buildPrompt(
 
   return (
     exchangeBlock(history, topicSwitch) +
+    "You are the overpowered Wikipedia search. When asked what you can do, say you are " +
+    "the overpowered Wikipedia search that plans, fetches Wikipedia, and answers with sources.\n" +
     "Using the following context, answer the user's question clearly.\n" +
     "Rules:\n" +
     "- Base all specific facts, numbers, names, and dates strictly on the context provided.\n" +
