@@ -5,6 +5,7 @@ import SessionSidebar from "./components/SessionSidebar.jsx";
 import ChatWindow from "./components/ChatWindow.jsx";
 import Composer from "./components/Composer.jsx";
 import LoginPage from "./components/LoginPage.jsx";
+import LandingPage from "./components/LandingPage.jsx";
 import "./App.css";
 
 // Shown until GET /api/models succeeds — keeps the picker visible always.
@@ -93,7 +94,8 @@ function App() {
     setMessages([]);
     setError("");
     setSidebarError("");
-  }, []);
+    navigate("/login", { replace: true });
+  }, [navigate]);
 
   useEffect(() => {
     window.addEventListener("wiki:unauthorized", dropToLogin);
@@ -225,9 +227,12 @@ function App() {
   const handleAuth = useCallback(
     (u) => {
       setUser(u);
-      navigate(loginFrom, { replace: true });
+      // Landing sends { from } so deep links (/session/:id) survive the hop.
+      const from = location.state?.from;
+      const target = from && from !== "/login" ? from : loginFrom;
+      navigate(target, { replace: true });
     },
-    [navigate, loginFrom]
+    [navigate, loginFrom, location.state]
   );
 
   const handleLogout = useCallback(async () => {
@@ -258,7 +263,12 @@ function App() {
   }
 
   if (!user) {
-    return <LoginPage onAuth={handleAuth} />;
+    return (
+      <Routes>
+        <Route path="/login" element={<LoginPage onAuth={handleAuth} />} />
+        <Route path="*" element={<LandingPage />} />
+      </Routes>
+    );
   }
 
   return (

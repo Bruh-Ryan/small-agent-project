@@ -1,10 +1,14 @@
 import { useState } from "react";
+import { useLocation } from "react-router-dom";
 import { login, register } from "../api.js";
 
 // Full-screen login/register card shown whenever there is no session.
 // Server-side validation errors (400/401/409/503) render inline as-is.
 export default function LoginPage({ onAuth }) {
-  const [mode, setMode] = useState("login");
+  const location = useLocation();
+  const [mode, setMode] = useState(
+    location.state?.mode === "register" ? "register" : "login"
+  );
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
