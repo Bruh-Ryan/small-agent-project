@@ -10,12 +10,15 @@ export class ApiError extends Error {
 }
 
 async function request(path, options = {}) {
+  // skipAuthEvent: the boot-time me() probe expects a 401 when logged out —
+  // that is normal state, not a session failure, so it must not bounce routing.
+  const { skipAuthEvent, ...fetchOptions } = options;
   let res;
   try {
     res = await fetch(`${BASE}${path}`, {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      ...options,
+      ...fetchOptions,
     });
   } catch {
     // Network-level failure (server down, proxy 502, etc.)
@@ -30,7 +33,7 @@ async function request(path, options = {}) {
       body.error || `${res.status} ${res.statusText}`,
       res.status
     );
-    if (res.status === 401) {
+    if (res.status === 401 && !skipAuthEvent) {
       window.dispatchEvent(new Event("wiki:unauthorized"));
     }
     throw err;
@@ -62,7 +65,7 @@ export function deleteSession(id) {
 }
 
 export function me() {
-  return request("/api/auth/me");
+  return request("/api/auth/me", { skipAuthEvent: true });
 }
 
 export function login(username, password) {

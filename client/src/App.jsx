@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useParams, useLocation, Navigate } from "react-router-dom";
 import { ask, listSessions, getSession, deleteSession, getModels, me, logout } from "./api";
 import SessionSidebar from "./components/SessionSidebar.jsx";
@@ -88,13 +88,18 @@ function App() {
   }, []);
 
   // Any API 401 (expired session mid-use, logged out elsewhere) → login.
+  // Guarded: a 401 while already logged out (e.g. landing page probes) must
+  // not reroute — only a real session expiry navigates.
+  const userRef = useRef(null);
+  userRef.current = user;
   const dropToLogin = useCallback(() => {
+    const hadSession = userRef.current !== null;
     setUser(null);
     setSessions([]);
     setMessages([]);
     setError("");
     setSidebarError("");
-    navigate("/login", { replace: true });
+    if (hadSession) navigate("/login", { replace: true });
   }, [navigate]);
 
   useEffect(() => {
