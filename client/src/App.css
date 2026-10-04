@@ -791,6 +791,20 @@
   height: 4px;
 }
 
+/* Trailing end-cap: breathing room after the maker section so the loop only
+   fires once everything above has been fully seen. No snap-align here. */
+.landing-loop {
+  position: relative;
+  z-index: 1;
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  font-size: 1.4rem;
+  letter-spacing: 0.5em;
+}
+
 .landing-links {
   display: flex;
   gap: 14px;

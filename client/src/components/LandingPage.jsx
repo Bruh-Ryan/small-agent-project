@@ -34,7 +34,7 @@ export default function LandingPage() {
           }, 500);
         }
       },
-      { root, threshold: 0.9, rootMargin: "0px 0px -10% 0px" }
+      { root, threshold: 0.5 }
     );
     io.observe(sentinel);
     return () => io.disconnect();
@@ -128,8 +128,9 @@ export default function LandingPage() {
           </a>
         </div>
         <p className="muted">Keep scrolling — the page topples back to search.</p>
-        <div ref={endSentinel} className="landing-end" aria-hidden="true" />
       </section>
+
+      <div className="landing-loop" ref={endSentinel} aria-hidden="true">· · ·</div>
     </div>
   );
 }
