@@ -25,11 +25,13 @@ export default function LandingPage() {
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && !looping.current) {
+          // Instant restart — no upward travel animation. The hero reads as
+          // the next round of the loop.
           looping.current = true;
-          root.scrollTo({ top: 0, behavior: "smooth" });
+          root.scrollTo({ top: 0, behavior: "auto" });
           setTimeout(() => {
             looping.current = false;
-          }, 900);
+          }, 500);
         }
       },
       { root, threshold: 0.9, rootMargin: "0px 0px -10% 0px" }
@@ -79,10 +81,7 @@ export default function LandingPage() {
             <p>Any-error fallback across 16 free-tier models. All down? A friendly bubble, not a stack trace.</p>
           </div>
         </div>
-      </section>
-
-      <section className="landing-about">
-        <h2>Under the hood</h2>
+        <h2 className="landing-sub">Under the hood</h2>
         <div className="landing-stack">
           <div><span>Frontend</span>React 19 + Vite + React Router</div>
           <div><span>Backend</span>Express 4 (ESM) on Node 24</div>

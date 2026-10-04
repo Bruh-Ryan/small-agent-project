@@ -622,7 +622,7 @@
 .landing {
   height: 100vh;
   overflow-y: scroll;
-  scroll-snap-type: y mandatory;
+  scroll-snap-type: y proximity;
   position: relative;
   background: var(--bg);
 }
@@ -646,8 +646,12 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 40px 24px;
+  padding: 64px 24px;
   text-align: center;
+}
+
+.landing-sub {
+  margin-top: 40px !important;
 }
 
 .landing-brand {
