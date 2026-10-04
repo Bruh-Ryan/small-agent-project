@@ -787,6 +787,31 @@
   height: 4px;
 }
 
+.landing-links {
+  display: flex;
+  gap: 14px;
+  margin-top: 22px;
+  justify-content: center;
+}
+
+.landing-icon-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--muted);
+  background: var(--panel);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.landing-icon-link:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
 @media (max-width: 760px) {
   .landing-search-hint { display: none; }
   .landing-about h2 { font-size: 1.2rem; }

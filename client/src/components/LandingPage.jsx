@@ -32,7 +32,7 @@ export default function LandingPage() {
           }, 900);
         }
       },
-      { root, threshold: 0.4 }
+      { root, threshold: 0.9, rootMargin: "0px 0px -10% 0px" }
     );
     io.observe(sentinel);
     return () => io.disconnect();
@@ -91,7 +91,44 @@ export default function LandingPage() {
           <div><span>Quality</span>Follow-up rewrite, topic-switch detection, 24h recency gate</div>
           <div><span>Ship</span>Docker single-origin image, Vitest 138 green, zero-quota CI</div>
         </div>
-        <p className="muted">Built as a learning project, kept honest by tests. Keep scrolling — the page topples back to search.</p>
+        <p className="muted">Built as a learning project, kept honest by tests.</p>
+      </section>
+
+      <section className="landing-about landing-maker">
+        <h2>Who made this</h2>
+        <p>
+          Designed and built as a portfolio piece — one developer, one truth
+          source, far too many free-tier models.
+        </p>
+        <div className="landing-links">
+          <a
+            href="https://my-intranet.vercel.app/"
+            target="_blank"
+            rel="noreferrer"
+            className="landing-icon-link"
+            aria-label="Maker's portfolio"
+            title="Maker's portfolio"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M2 12h20" />
+              <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+            </svg>
+          </a>
+          <a
+            href="https://github.com/Bruh-Ryan/small-agent-project"
+            target="_blank"
+            rel="noreferrer"
+            className="landing-icon-link"
+            aria-label="Project source on GitHub"
+            title="Project source on GitHub"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.55 0-.27-.01-1.17-.02-2.12-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.19 1.76 1.19 1.03 1.76 2.7 1.25 3.36.96.1-.75.4-1.25.72-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.18 1.18a11.1 11.1 0 0 1 5.8 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.38-5.25 5.67.41.35.77 1.05.77 2.12 0 1.53-.01 2.76-.01 3.14 0 .3.2.67.8.55A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z" />
+            </svg>
+          </a>
+        </div>
+        <p className="muted">Keep scrolling — the page topples back to search.</p>
         <div ref={endSentinel} className="landing-end" aria-hidden="true" />
       </section>
     </div>
