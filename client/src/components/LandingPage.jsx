@@ -1,21 +1,43 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import LetterRain from "./LetterRain.jsx";
+import { prepareQuery } from "../api.js";
 
-// Public landing: hero shows ONLY the search. Typing/focus jumps to signup
-// (query discarded — composer starts empty after auth). Scroll reveals the
-// about sections; scrolling past the end wraps back to the hero search.
+// Public landing: hero shows ONLY the search. Typing is allowed — submitting
+// holds the query server-side for 8 minutes, then jumps to signup; after
+// auth the question auto-sends into the new account's chats (deferred
+// execution — no anonymous quota burn). Scroll reveals the about sections;
+// scrolling past the end wraps back to the hero search.
 export default function LandingPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const scroller = useRef(null);
   const endSentinel = useRef(null);
   const looping = useRef(false);
+  const [teaser, setTeaser] = useState("");
+  const [holding, setHolding] = useState(false);
+  const [holdError, setHoldError] = useState("");
 
-  function goSignup() {
-    navigate("/login", {
-      state: { mode: "register", from: location.pathname },
-    });
+  async function submitTeaser(e) {
+    e.preventDefault();
+    const query = teaser.trim();
+    if (!query || holding) return;
+    setHolding(true);
+    setHoldError("");
+    try {
+      const { pendingToken } = await prepareQuery(query);
+      sessionStorage.setItem("wiki:pending-token", pendingToken);
+    } catch {
+      // Prepare failed (rate limit, DB nap) — the raw text below still lets
+      // signup send it as a plain question.
+      setHoldError("Couldn't hold that — you can still sign up and ask it.");
+    } finally {
+      sessionStorage.setItem("wiki:pending-query", query);
+      setHolding(false);
+      navigate("/login", {
+        state: { mode: "register", from: location.pathname },
+      });
+    }
   }
 
   useEffect(() => {
@@ -46,17 +68,21 @@ export default function LandingPage() {
 
       <section className="landing-hero">
         <div className="landing-brand">WIKIPEDIA AGENT</div>
-        <div className="landing-search" aria-label="Search Wikipedia — sign up to start">
+        <form className="landing-search" onSubmit={submitTeaser}>
           <span className="landing-search-icon" aria-hidden="true">⌕</span>
           <input
             className="landing-search-input"
             aria-label="Search Wikipedia"
             placeholder="Ask Wikipedia anything…"
-            onFocus={goSignup}
-            onChange={goSignup}
+            value={teaser}
+            onChange={(e) => setTeaser(e.target.value)}
+            disabled={holding}
           />
-          <span className="landing-search-hint">sign up to start</span>
-        </div>
+          <span className="landing-search-hint">
+            {holding ? "holding…" : "sign up to start"}
+          </span>
+        </form>
+        {holdError && <p className="landing-hold-error" role="alert">{holdError}</p>}
         <div className="landing-scroll-cue" aria-hidden="true">scroll ↓</div>
       </section>
 

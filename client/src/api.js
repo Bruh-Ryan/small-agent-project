@@ -41,10 +41,19 @@ async function request(path, options = {}) {
   return res.json();
 }
 
-export function ask(query, sessionId, model) {
+export function ask(query, sessionId, model, pendingToken) {
   return request("/api/ask", {
     method: "POST",
-    body: JSON.stringify({ query, sessionId, model }),
+    body: JSON.stringify({ query, sessionId, model, pendingToken }),
+  });
+}
+
+// Landing-page handoff: hold a query for 8 minutes so signup can auto-send
+// it. Public endpoint, no auth — and no LLM spend until consumed post-auth.
+export function prepareQuery(query) {
+  return request("/api/ask/prepare", {
+    method: "POST",
+    body: JSON.stringify({ query }),
   });
 }
 

@@ -171,12 +171,14 @@ function App() {
 
   // Runs the agent: optimistic user bubble → answer bubble with debug payload.
   const handleAsk = useCallback(
-    async (query, sessionId, setMsgs) => {
+    async (query, sessionId, setMsgs, pendingToken, plainFallback) => {
       setError("");
-      setMsgs((m) => [...m, { role: "user", text: query }]);
+      // Token-first sends show the fallback text optimistically (query itself
+      // travels via the single-use pending token, not the wire).
+      setMsgs((m) => [...m, { role: "user", text: query ?? plainFallback ?? "" }]);
       setPending(true);
       try {
-        const res = await ask(query, sessionId, model || undefined);
+        const res = await ask(query, sessionId, model || undefined, pendingToken);
         setMsgs((m) => [
           ...m,
           {
@@ -209,6 +211,12 @@ function App() {
         }
         refreshSessions();
       } catch (err) {
+        // Pending token died between hold and consume (8-min TTL / replay) —
+        // retry once as a plain question instead of stranding the user.
+        if (pendingToken && err.status === 410 && plainFallback) {
+          setMsgs((m) => m.slice(0, -1));
+          return handleAsk(plainFallback, sessionId, setMsgs);
+        }
         setError(err.message);
       } finally {
         setPending(false);
@@ -235,9 +243,22 @@ function App() {
       // Landing sends { from } so deep links (/session/:id) survive the hop.
       const from = location.state?.from;
       const target = from && from !== "/login" ? from : loginFrom;
+      // Pending landing query (single-use, cleared immediately so a re-render
+      // can never double-send). Auto-sends into a fresh chat after signup.
+      const pendingToken = sessionStorage.getItem("wiki:pending-token") ?? undefined;
+      const pendingQuery = sessionStorage.getItem("wiki:pending-query") ?? undefined;
+      sessionStorage.removeItem("wiki:pending-token");
+      sessionStorage.removeItem("wiki:pending-query");
+      if (pendingToken || pendingQuery) {
+        setMessages([]);
+        setError("");
+        navigate("/", { replace: true });
+        handleAsk(pendingQuery, null, setMessages, pendingToken, pendingQuery);
+        return;
+      }
       navigate(target, { replace: true });
     },
-    [navigate, loginFrom, location.state]
+    [navigate, loginFrom, location.state, handleAsk]
   );
 
   const handleLogout = useCallback(async () => {

@@ -703,6 +703,12 @@
   white-space: nowrap;
 }
 
+.landing-hold-error {
+  margin-top: 12px;
+  font-size: 0.82rem;
+  color: #ff9b9b;
+}
+
 .landing-scroll-cue {
   margin-top: 40px;
   color: var(--muted);
