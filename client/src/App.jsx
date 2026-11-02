@@ -107,6 +107,98 @@ function App() {
     return () => window.removeEventListener("wiki:unauthorized", dropToLogin);
   }, [dropToLogin]);
 
+  // One cookie (`wiki.sid`) is shared by every tab in a browser profile, so
+  // logging in as another account in tab 2 rewrites it for tab 1 too — tab 1
+  // then renders user A's name over user B's chats (and B's writes). The
+  // server is authoritative, so revalidate whenever the tab is looked at and
+  // ADOPT the cookie's identity instead of trusting this tab's state.
+  const pendingRef = useRef(false);
+  const identityCheckRef = useRef(false);
+  const identityDirtyRef = useRef(false); // a check was requested while busy
+  const lastCheckRef = useRef(0);
+
+  const revalidateIdentity = useCallback(
+    async (force = false) => {
+      // Boot probe owns the first load; don't race it.
+      if (authLoading) return;
+      // Never reset the view underneath an in-flight answer — remember the
+      // request and replay it once the send settles (handleAsk's finally).
+      if (identityCheckRef.current || pendingRef.current) {
+        identityDirtyRef.current = true;
+        return;
+      }
+      const now = Date.now();
+      if (!force && now - lastCheckRef.current < 10_000) return;
+      identityDirtyRef.current = false;
+      identityCheckRef.current = true;
+      lastCheckRef.current = now;
+      try {
+        const { user: fresh } = await me();
+        const current = userRef.current;
+        if (!current) {
+          // Logged in from another tab while this one still shows /login.
+          userRef.current = fresh;
+          setUser(fresh);
+          return;
+        }
+        if (String(fresh.id) === String(current.id)) return;
+        // Same cookie jar, different account: drop the previous user's view.
+        userRef.current = fresh;
+        setUser(fresh);
+        setSessions([]);
+        setMessages([]);
+        setError("");
+        setSidebarError("");
+        navigate("/", { replace: true });
+      } catch (err) {
+        // Only a real expiry logs out. A DB outage (503) or a network blip
+        // must leave the current identity alone, or every hiccup kicks the
+        // user out of the app.
+        if (err.status === 401) dropToLogin();
+      } finally {
+        identityCheckRef.current = false;
+      }
+    },
+    [authLoading, dropToLogin, navigate]
+  );
+
+  // Cheap triggers: looking at the tab, refocusing its window, and bfcache
+  // restores (pageshow, which visibilitychange alone can miss).
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") revalidateIdentity(false);
+    };
+    const onPageShow = (e) => {
+      if (e.persisted) revalidateIdentity(true);
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("pageshow", onPageShow);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("pageshow", onPageShow);
+    };
+  }, [revalidateIdentity]);
+
+  // Immediate nudge for the same-origin tabs. Not authoritative and not
+  // universally available (old Safari / in-app webviews) — the revalidation
+  // above still corrects any tab that misses this.
+  const authChannelRef = useRef(null);
+  useEffect(() => {
+    if (typeof BroadcastChannel === "undefined") return;
+    const channel = new BroadcastChannel("wiki:auth");
+    authChannelRef.current = channel;
+    channel.onmessage = (event) => {
+      if (event.data?.type === "logout") dropToLogin();
+      else revalidateIdentity(true);
+    };
+    return () => {
+      channel.close();
+      authChannelRef.current = null;
+    };
+  }, [dropToLogin, revalidateIdentity]);
+
   // Model picker: curated list from /api/models, choice persisted locally.
   // Fallback entry guarantees the <select> always renders even if the API
   // is unreachable (the old hard gate made the picker vanish silently).
@@ -176,6 +268,7 @@ function App() {
       // Token-first sends show the fallback text optimistically (query itself
       // travels via the single-use pending token, not the wire).
       setMsgs((m) => [...m, { role: "user", text: query ?? plainFallback ?? "" }]);
+      pendingRef.current = true;
       setPending(true);
       try {
         const res = await ask(query, sessionId, model || undefined, pendingToken);
@@ -219,10 +312,14 @@ function App() {
         }
         setError(err.message);
       } finally {
+        // Sync the ref before replaying a deferred identity check: the ref is
+        // what revalidateIdentity() reads, and state updates land later.
+        pendingRef.current = false;
         setPending(false);
+        if (identityDirtyRef.current) revalidateIdentity(true);
       }
     },
-    [navigate, refreshSessions, model]
+    [navigate, refreshSessions, model, revalidateIdentity]
   );
 
   const handleSelect = (id) => navigate(`/session/${id}`);
@@ -240,6 +337,9 @@ function App() {
   const handleAuth = useCallback(
     (u) => {
       setUser(u);
+      // Other tabs share this cookie now — tell them immediately (their
+      // revalidation is forced, so the throttle can't delay them).
+      authChannelRef.current?.postMessage({ type: "login" });
       // Landing sends { from } so deep links (/session/:id) survive the hop.
       const from = location.state?.from;
       const target = from && from !== "/login" ? from : loginFrom;
@@ -267,6 +367,9 @@ function App() {
     } catch {
       // Even if the server call fails, drop the local session anyway.
     }
+    // The cookie is gone for every tab in this profile, so don't leave the
+    // others rendering chats the server will now 401 on.
+    authChannelRef.current?.postMessage({ type: "logout" });
     dropToLogin();
     navigate("/login", { replace: true });
   }, [dropToLogin, navigate]);

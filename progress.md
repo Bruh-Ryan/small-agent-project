@@ -456,9 +456,31 @@ Fix:
   inherited titles and normal discovery. Changing that search-set logic would
   re-open the Phase 5 tuning.
 
+### Phase 9 - shared-cookie identity across tabs (COMPLETE)
+
+Problem: `wiki.sid` is one cookie per browser profile, shared by every open tab.
+Logging in as another account in tab 2 rewrites it, so tab 1 kept rendering user
+A's name and message list while every request - and every write - was now user B.
+
+Fix (client only, `App.jsx`):
+- [x] `revalidateIdentity(force)` re-reads `/api/auth/me` and **adopts** the
+  cookie's user: different id -> set that user, clear sessions/messages/errors,
+  `navigate("/")`. `401` -> `dropToLogin()`. `503`/network -> leave state alone
+  (the boot probe's "any throw means logged out" would flap on a DB blip).
+- [x] Triggers: `visibilitychange` (visible), window `focus`, and `pageshow`
+  when `persisted` (bfcache restore). 10s throttle so alt-tabbing is cheap.
+- [x] Guards: skip while an ask is in flight and replay the check when it
+  settles (`identityDirtyRef`), so returning to a background tab cannot wipe the
+  message list mid-answer. One check in flight at a time.
+- [x] `BroadcastChannel("wiki:auth")` posts login/logout so other tabs correct
+  immediately; guarded for browsers/webviews without it, never authoritative
+  (the revalidation is), and receivers do not re-broadcast.
+- [x] Sidebar already rendered `@username` - no change needed.
+- Client build green; no server change, no test change.
+
 ## Test status
 
-`npm test` → **137/137 passing** (Vitest, server):
+`npm test` -> **145/145 passing** (Vitest, server, 12 files):
 planner (parseTitles port, parsePlan incl. DEPTH, detectFollowUp,
 isTopicSwitch, extractStandalone, topic-switch prompt framing) ·
 wikipedia (extractInfoboxField, formatWikiTable) ·
@@ -499,6 +521,12 @@ Client: `npm --prefix client run build` must stay green.
 - A dev session cookie is named **`wiki.sid`**. Scripts that assume
   `connect.sid` report "no session cookie" even when login succeeded
   (this stalled the 7D e2e run once).
+- **One `wiki.sid` per browser profile, not per tab.** Two tabs cannot be
+  different accounts: logging in as B rewrites the cookie for A's tab too. Tabs
+  now revalidate on focus and adopt the cookie's user (Phase 9); per-tab
+  accounts would need tab-scoped tokens, which this app deliberately lacks.
+  Because of that, "user A is logged in" is only true until the next login in
+  the same browser.
 - `FORCE_FAIL_PROVIDERS` must stay unset outside tests — it silently disables
   providers and makes the app look broken.
 
